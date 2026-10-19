@@ -96,7 +96,7 @@ def locked():
         try:
             fd = os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
             break
-        except FileExistsError:
+        except (FileExistsError, PermissionError):  # Windows says PermissionError while the lock is being deleted
             try:
                 if time.time() - lock.stat().st_mtime > 10:  # stale lock from a crash
                     lock.unlink()
