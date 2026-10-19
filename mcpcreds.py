@@ -400,8 +400,18 @@ def _run_windows(exe: str, cmd: list, env: dict) -> int:
         target = 'cmd.exe /d /s /c "' + line + '"'
     else:
         target = [exe] + cmd[1:]
+    # A windowed (GUI) exe does not pass its stdio pipes on by default: hand them over explicitly,
+    # and keep console children from opening a window of their own.
+    std = []
+    for fd in (0, 1, 2):
+        try:
+            os.fstat(fd)
+            std.append(fd)
+        except OSError:
+            std.append(None)
     try:
-        proc = subprocess.Popen(target, env=env)
+        proc = subprocess.Popen(target, env=env, stdin=std[0], stdout=std[1], stderr=std[2],
+                                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except OSError as e:
         print(f"MCP Creds: could not start {cmd[0]}: {e}", file=sys.stderr)
         return 127
