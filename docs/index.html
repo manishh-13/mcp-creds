@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MCP Creds: free local API key manager for Claude, Cursor and every MCP app</title>
+<meta name="description" content="Save every API key once and let Claude Desktop, Claude Code, Cursor, VS Code and any MCP server fetch it. Free, open source, local only. No cloud, no login.">
+<meta name="keywords" content="MCP, Model Context Protocol, API key manager, MCP credentials, Claude Desktop API key, Cursor MCP token, MCP server environment variables, local secrets manager, AI tools">
+<link rel="canonical" href="https://manishh-13.github.io/mcp-creds/">
+<meta name="theme-color" content="#07080c">
+<meta name="color-scheme" content="dark">
+<meta name="robots" content="index,follow,max-image-preview:large">
+<meta property="og:type" content="website">
+<meta property="og:site_name" content="MCP Creds">
+<meta property="og:title" content="MCP Creds: every API key your AI apps need, in one place">
+<meta property="og:description" content="Save a token once. Claude, Cursor, VS Code and any MCP app fetch it. Free, open source, local only.">
+<meta property="og:url" content="https://manishh-13.github.io/mcp-creds/">
+<meta property="og:image" content="https://manishh-13.github.io/mcp-creds/assets/og.png">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="MCP Creds app showing saved API keys for Anthropic, AWS, OpenAI, Notion, Slack and Stripe">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="MCP Creds: every API key your AI apps need, in one place">
+<meta name="twitter:description" content="Save a token once. Claude, Cursor, VS Code and any MCP app fetch it. Free, open source, local only.">
+<meta name="twitter:image" content="https://manishh-13.github.io/mcp-creds/assets/og.png">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/icon-32.png">
+<link rel="icon" type="image/png" sizes="192x192" href="assets/icon-192.png">
+<link rel="apple-touch-icon" href="assets/icon-180.png">
+<link rel="preload" as="image" href="assets/hero.webp" type="image/webp">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@graph":[
+ {"@type":"SoftwareApplication","name":"MCP Creds","url":"https://manishh-13.github.io/mcp-creds/",
+  "description":"A free, open source, local-only API key manager for AI apps. Save each key once; Claude Desktop, Claude Code, Cursor, VS Code and any MCP client fetch it through the Model Context Protocol.",
+  "applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Windows, Linux","softwareVersion":"0.1.0",
+  "license":"https://opensource.org/licenses/MIT","isAccessibleForFree":true,
+  "offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},
+  "downloadUrl":"https://github.com/manishh-13/mcp-creds/releases/latest","codeRepository":"https://github.com/manishh-13/mcp-creds",
+  "image":"https://manishh-13.github.io/mcp-creds/assets/og.png","screenshot":"https://manishh-13.github.io/mcp-creds/assets/hero.webp",
+  "author":{"@type":"Person","name":"manishh-13","url":"https://github.com/manishh-13"}},
+ {"@type":"FAQPage","mainEntity":[
+  {"@type":"Question","name":"What is MCP Creds?","acceptedAnswer":{"@type":"Answer","text":"A small desktop app that keeps all the API keys and tokens your AI apps need in one local file. You save a key once, connect MCP Creds to your AI apps once, and they fetch keys from it through the Model Context Protocol (MCP)."}},
+  {"@type":"Question","name":"Does it work with ChatGPT, Gemini or local models?","acceptedAnswer":{"@type":"Answer","text":"Yes. MCP Creds talks to the app, not the model, so it works with any model inside any app that supports MCP: Claude Desktop, Claude Code, Cursor, Windsurf, VS Code and others."}},
+  {"@type":"Question","name":"Is my data sent anywhere?","acceptedAnswer":{"@type":"Answer","text":"No. There is no cloud, account or telemetry. Keys live in ~/.mcpcreds/store.json on your machine, readable only by your user."}},
+  {"@type":"Question","name":"How do I give an MCP server its token without pasting it into the config?","acceptedAnswer":{"@type":"Answer","text":"Start the server through MCP Creds: python3 mcpcreds.py run -e GITHUB_TOKEN -- npx your-server. MCP Creds sets the saved key as an environment variable and starts the server. The app can also move tokens out of your existing configs for you."}},
+  {"@type":"Question","name":"How do I store AWS credentials with an access key and a secret?","acceptedAnswer":{"@type":"Answer","text":"Paste them together into one key, one per line, or let MCP Creds split them into separate keys. The AI is told to read every part, and run can hand each part to the right environment variable."}},
+  {"@type":"Question","name":"Is it free?","acceptedAnswer":{"@type":"Answer","text":"Yes. MCP Creds is free and open source under the MIT license."}}]}
+]}
+</script>
+<style>
+@property --ang{syntax:"<angle>";initial-value:0deg;inherits:false}
+:root{--bg:#07080c;--ink:#eef1f6;--mute:#929aab;--dim:#5d6474;--line:rgba(255,255,255,.08);--line2:rgba(255,255,255,.13);--glass:rgba(255,255,255,.035);
+--mint:#6ee7b7;--sky:#7dd3fc;--violet:#a78bfa;--rose:#fb7185;--grad:linear-gradient(120deg,var(--mint),var(--sky) 45%,var(--violet));
+--ease:cubic-bezier(.2,.8,.2,1);--spring:cubic-bezier(.34,1.56,.64,1);--mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 -apple-system,BlinkMacSystemFont,"SF Pro Text","Segoe UI Variable","Segoe UI",Inter,sans-serif;-webkit-font-smoothing:antialiased;overflow-x:hidden}
+a{color:inherit;text-decoration:none}
+img,video{max-width:100%;display:block}
+.mono,code{font-family:var(--mono)}
+.wrap{max-width:1160px;margin:0 auto;padding:0 28px}
+.grad{background:var(--grad);background-size:200% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;animation:shimmer 8s ease-in-out infinite alternate}
+@keyframes shimmer{to{background-position:100% 0}}
+.skip{position:absolute;left:-999px}.skip:focus{left:12px;top:12px;z-index:99;background:#fff;color:#000;padding:8px 12px;border-radius:8px}
+
+/* background */
+.bg{position:fixed;inset:0;z-index:-1;pointer-events:none;overflow:hidden}
+.blob{position:absolute;border-radius:50%;filter:blur(110px);opacity:.34;will-change:transform}
+.b1{width:720px;height:720px;background:#10b981;left:-220px;top:-300px;animation:d1 28s var(--ease) infinite alternate}
+.b2{width:640px;height:640px;background:#3b82f6;right:-240px;top:120px;opacity:.26;animation:d2 34s var(--ease) infinite alternate}
+.b3{width:600px;height:600px;background:#8b5cf6;left:28%;top:900px;opacity:.2;animation:d3 30s var(--ease) infinite alternate}
+@keyframes d1{to{transform:translate(180px,140px) scale(1.15)}}@keyframes d2{to{transform:translate(-160px,180px) scale(.9)}}@keyframes d3{to{transform:translate(-140px,-160px) scale(1.2)}}
+.gridl{position:absolute;inset:0;background-image:linear-gradient(var(--line) 1px,transparent 1px),linear-gradient(90deg,var(--line) 1px,transparent 1px);background-size:60px 60px;-webkit-mask-image:radial-gradient(ellipse 70% 50% at 50% 0%,#000 25%,transparent 75%);mask-image:radial-gradient(ellipse 70% 50% at 50% 0%,#000 25%,transparent 75%);opacity:.6}
+
+/* nav */
+nav{position:sticky;top:14px;z-index:20;margin:14px auto 0;max-width:1160px;padding:0 20px}
+.navin{display:flex;align-items:center;gap:22px;padding:10px 12px 10px 16px;border:1px solid var(--line);border-radius:16px;background:rgba(9,10,15,.6);backdrop-filter:blur(18px) saturate(150%);-webkit-backdrop-filter:blur(18px) saturate(150%)}
+.brand{display:flex;align-items:center;gap:10px;font-weight:650;letter-spacing:-.01em}
+.brand img{width:28px;height:28px}
+.links{display:flex;gap:22px;margin-left:12px;font-size:14px;color:var(--mute)}
+.links a:hover{color:var(--ink)}
+.navr{margin-left:auto;display:flex;gap:8px;align-items:center}
+.btn{display:inline-flex;align-items:center;gap:9px;border:1px solid var(--line2);background:var(--glass);padding:10px 16px;border-radius:12px;font-weight:600;font-size:14.5px;transition:transform .25s var(--spring),background .2s,box-shadow .25s,border-color .2s;white-space:nowrap}
+.btn svg{width:17px;height:17px}
+.btn:hover{transform:translateY(-2px);background:rgba(255,255,255,.07);border-color:rgba(255,255,255,.2)}
+.btn.primary{background:var(--ink);color:#07080c;border-color:transparent;box-shadow:0 10px 40px -12px rgba(125,211,252,.8)}
+.btn.primary:hover{background:#fff;box-shadow:0 14px 50px -10px rgba(125,211,252,.95)}
+.btn.lg{padding:14px 22px;font-size:16px;border-radius:14px}
+.btn.sm{padding:7px 12px;font-size:13px;border-radius:10px}
+.star b{font-variant-numeric:tabular-nums;color:var(--ink)}
+svg.i{fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+
+/* hero */
+.hero{text-align:center;padding:96px 0 40px}
+.eyebrow{display:inline-flex;align-items:center;gap:10px;font-size:13px;color:var(--mute);padding:6px 14px 6px 8px;border:1px solid var(--line);border-radius:999px;background:var(--glass)}
+.eyebrow .tag{font-size:11.5px;font-weight:700;color:#07080c;background:var(--grad);padding:2px 9px;border-radius:999px}
+h1{font-size:clamp(44px,7.4vw,92px);line-height:.98;letter-spacing:-.05em;font-weight:760;margin:26px auto 22px;max-width:980px}
+.lede{font-size:clamp(17px,2vw,20px);color:var(--mute);max-width:660px;margin:0 auto 36px}
+.lede b{color:var(--ink);font-weight:600}
+.ctas{display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+.alt{margin-top:16px;font-size:13.5px;color:var(--dim)}
+.alt a{color:var(--mute);text-decoration:underline;text-underline-offset:3px}
+.alt code{color:var(--sky);font-size:12.5px}
+
+.stage{position:relative;margin:70px auto 0;max-width:1100px;perspective:1800px}
+.stage::before{content:"";position:absolute;inset:8% 6% -4%;background:radial-gradient(closest-side,rgba(125,211,252,.35),transparent);filter:blur(40px);z-index:-1}
+.window{border-radius:18px;overflow:hidden;border:1px solid var(--line2);background:#0a0b10;box-shadow:0 60px 160px -40px rgba(0,0,0,.95),0 0 0 1px rgba(255,255,255,.03) inset;transform:rotateX(14deg) scale(.94);transform-origin:50% 0;transition:transform .2s linear;will-change:transform}
+.chrome{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line);background:rgba(255,255,255,.03)}
+.chrome i{width:12px;height:12px;border-radius:50%;background:#3a3f4b}
+.chrome i:nth-child(1){background:#ff5f57}.chrome i:nth-child(2){background:#febc2e}.chrome i:nth-child(3){background:#28c840}
+.chrome span{margin:0 auto;font-size:12.5px;color:var(--dim);transform:translateX(-26px)}
+.window video,.window img{width:100%;aspect-ratio:1280/800;object-fit:cover;background:#07080c}
+
+/* logos */
+.works{padding:70px 0 20px;text-align:center}
+.works p{font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--dim);margin:0 0 20px}
+.chips{display:flex;gap:10px;flex-wrap:wrap;justify-content:center}
+.chip{display:inline-flex;align-items:center;gap:9px;padding:9px 15px;border-radius:12px;border:1px solid var(--line);background:var(--glass);color:#c9d0db;font-size:14.5px;font-weight:550}
+.chip i{width:22px;height:22px;border-radius:7px;display:grid;place-items:center;font:700 10px/1 -apple-system,sans-serif;font-style:normal;color:var(--c);background:color-mix(in srgb,var(--c) 16%,transparent);border:1px solid color-mix(in srgb,var(--c) 35%,transparent)}
+.models{margin-top:16px;color:var(--mute);font-size:14.5px}
+
+section{padding:110px 0 0}
+.kicker{font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--mint);font-weight:650}
+h2{font-size:clamp(32px,4.6vw,54px);line-height:1.04;letter-spacing:-.04em;margin:12px 0 16px;font-weight:740;max-width:820px}
+.sub{color:var(--mute);font-size:18px;max-width:640px;margin:0}
+.center{text-align:center}.center h2,.center .sub{margin-left:auto;margin-right:auto}
+
+/* before / after */
+.ba{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:44px}
+.pane{border-radius:18px;border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.04),rgba(255,255,255,.015));padding:22px}
+.pane h3{margin:0 0 4px;font-size:17px;display:flex;align-items:center;gap:10px}
+.pane .pl{font-size:11.5px;font-weight:700;padding:3px 9px;border-radius:999px}
+.bad .pl{color:var(--rose);background:rgba(251,113,133,.12);border:1px solid rgba(251,113,133,.35)}
+.good .pl{color:var(--mint);background:rgba(110,231,183,.12);border:1px solid rgba(110,231,183,.35)}
+.pane p{color:var(--mute);font-size:14.5px;margin:0 0 16px}
+pre{margin:0;padding:16px;border-radius:12px;background:#05060a;border:1px solid var(--line);font:12.8px/1.7 var(--mono);color:#cbd5e1;overflow:auto;white-space:pre}
+.k{color:var(--sky)}.s{color:var(--mint)}.p{color:var(--dim)}
+.leak{color:#fecdd3;background:rgba(251,113,133,.18);border-radius:4px;padding:1px 3px;box-shadow:0 0 0 1px rgba(251,113,133,.4)}
+.safe{color:#d1fae5;background:rgba(110,231,183,.14);border-radius:4px;padding:1px 3px}
+.bad{border-color:rgba(251,113,133,.22)}.good{border-color:rgba(110,231,183,.25)}
+
+/* steps */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:44px;counter-reset:s}
+.step{position:relative;padding:26px;border-radius:18px;border:1px solid var(--line);background:var(--glass);overflow:hidden}
+.step::before{counter-increment:s;content:counter(s);display:grid;place-items:center;width:36px;height:36px;border-radius:11px;font:700 15px/1 var(--mono);color:#07080c;background:var(--grad);margin-bottom:18px;box-shadow:0 10px 30px -10px rgba(125,211,252,.8)}
+.step h3{margin:0 0 6px;font-size:19px;letter-spacing:-.02em}
+.step p{margin:0;color:var(--mute);font-size:15px}
+.step kbd{font:600 12px/1 var(--mono);border:1px solid var(--line2);border-bottom-width:2px;border-radius:6px;padding:3px 6px;color:var(--ink)}
+
+/* bento */
+.bento{display:grid;grid-template-columns:repeat(6,1fr);gap:16px;margin-top:44px}
+.tile{--c:#7dd3fc;position:relative;grid-column:span 2;border-radius:20px;border:1px solid var(--line);background:linear-gradient(180deg,rgba(255,255,255,.045),rgba(255,255,255,.015));padding:24px;overflow:hidden;isolation:isolate;transition:transform .4s var(--spring),border-color .3s}
+.tile:hover{transform:translateY(-4px)}
+.tile::before{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;background:radial-gradient(300px circle at var(--mx,-999px) var(--my,-999px),color-mix(in srgb,var(--c) 90%,white),transparent 45%);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;pointer-events:none}
+.tile::after{content:"";position:absolute;inset:0;z-index:-1;background:radial-gradient(420px circle at var(--mx,-999px) var(--my,-999px),color-mix(in srgb,var(--c) 10%,transparent),transparent 60%);pointer-events:none}
+.tile.w3{grid-column:span 3}.tile.w4{grid-column:span 4}
+.ticon{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;color:var(--c);background:color-mix(in srgb,var(--c) 14%,transparent);border:1px solid color-mix(in srgb,var(--c) 30%,transparent);margin-bottom:16px}
+.ticon svg{width:20px;height:20px}
+.tile h3{margin:0 0 6px;font-size:19px;letter-spacing:-.02em}
+.tile p{margin:0;color:var(--mute);font-size:15px}
+.tile .shot{margin:20px -24px -24px;border-top:1px solid var(--line)}
+.tile .shot img{width:100%}
+.tile .float{margin-top:20px;border-radius:14px;border:1px solid var(--line2);box-shadow:0 30px 80px -30px rgba(0,0,0,.9)}
+.tile pre{margin-top:18px;font-size:12px}
+.svc{display:flex;flex-wrap:wrap;gap:6px;margin-top:16px}
+.svc span{font:600 11.5px/1 -apple-system,sans-serif;padding:6px 9px;border-radius:8px;color:var(--c);background:color-mix(in srgb,var(--c) 13%,transparent);border:1px solid color-mix(in srgb,var(--c) 30%,transparent)}
+
+/* security */
+.sec{display:grid;grid-template-columns:1.1fr 1fr;gap:16px;margin-top:44px}
+.list{list-style:none;padding:0;margin:0;display:flex;flex-direction:column;gap:12px}
+.list li{display:flex;gap:12px;align-items:flex-start;color:#c9d0db;font-size:15.5px}
+.list li svg{width:20px;height:20px;flex:none;margin-top:2px}
+.list.ok li svg{color:var(--mint)}.list.no li svg{color:#fbbf24}
+
+/* faq */
+.faq{max-width:820px;margin:44px auto 0;display:flex;flex-direction:column;gap:10px}
+details{border:1px solid var(--line);border-radius:16px;background:var(--glass);padding:0 22px;transition:background .3s,border-color .3s}
+details[open]{background:rgba(255,255,255,.055);border-color:var(--line2)}
+summary{cursor:pointer;list-style:none;padding:19px 0;font-weight:600;font-size:17px;display:flex;justify-content:space-between;gap:16px;align-items:center}
+summary::-webkit-details-marker{display:none}
+summary::after{content:"+";font:400 24px/1 var(--mono);color:var(--mute);transition:transform .35s var(--spring)}
+details[open] summary::after{transform:rotate(45deg)}
+details p{margin:0 0 20px;color:var(--mute);font-size:15.5px}
+details code{color:var(--sky);font-size:13.5px}
+
+/* final */
+.final{margin:120px 0 0;padding:80px 28px;text-align:center;border-radius:28px;border:1px solid var(--line2);position:relative;overflow:hidden;background:radial-gradient(ellipse at 50% 0%,rgba(125,211,252,.16),transparent 60%),rgba(255,255,255,.02)}
+.final::before{content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;background:conic-gradient(from var(--ang),transparent,rgba(110,231,183,.9),rgba(125,211,252,.9),rgba(167,139,250,.9),transparent 55%);-webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);-webkit-mask-composite:xor;mask-composite:exclude;animation:spin 7s linear infinite}
+@keyframes spin{to{--ang:360deg}}
+.final img{width:84px;height:84px;margin:0 auto 22px;animation:float 4s ease-in-out infinite;filter:drop-shadow(0 20px 40px rgba(125,211,252,.45))}
+@keyframes float{50%{transform:translateY(-10px) rotate(-4deg)}}
+.final h2{margin:0 auto 14px}
+.final .sub{margin:0 auto 32px}
+
+footer{padding:60px 0 50px;color:var(--dim);font-size:14px;display:flex;justify-content:space-between;gap:16px;flex-wrap:wrap}
+footer a{color:var(--mute)}footer a:hover{color:var(--ink)}
+footer .fl{display:flex;gap:20px;flex-wrap:wrap}
+
+/* reveal */
+.rv{opacity:0;transform:translateY(26px);filter:blur(6px);transition:opacity .9s var(--ease),transform .9s var(--ease),filter .9s var(--ease)}
+.rv.in{opacity:1;transform:none;filter:none}
+.hero .rv{transition-delay:calc(var(--d,0)*90ms)}
+
+@media(max-width:900px){.links{display:none}.ba,.sec{grid-template-columns:1fr}.steps{grid-template-columns:1fr}.bento{grid-template-columns:1fr}.tile,.tile.w3,.tile.w4{grid-column:auto}.hero{padding-top:64px}.window{transform:none!important}}
+@media(max-width:560px){.navr .gh{display:none}.wrap{padding:0 18px}section{padding-top:80px}.chrome span{display:none}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}.rv{opacity:1;transform:none;filter:none}.window{transform:none}}
+</style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<div class="bg" aria-hidden="true"><div class="blob b1"></div><div class="blob b2"></div><div class="blob b3"></div><div class="gridl"></div></div>
+
+<nav aria-label="Main">
+  <div class="navin">
+    <a class="brand" href="#top"><img src="assets/icon-192.png" alt="" width="28" height="28">MCP Creds</a>
+    <div class="links"><a href="#how">How it works</a><a href="#features">Features</a><a href="#security">Security</a><a href="#faq">FAQ</a></div>
+    <div class="navr">
+      <a class="btn sm star gh" href="https://github.com/manishh-13/mcp-creds" rel="noopener"><svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.53-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.69 5.39-5.25 5.67.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5z"/></svg>Star <b id="stars"></b></a>
+      <a class="btn sm primary dl" href="https://github.com/manishh-13/mcp-creds/releases/latest">Download</a>
+    </div>
+  </div>
+</nav>
+
+<main id="main">
+<div class="wrap" id="top">
+  <header class="hero">
+    <span class="eyebrow rv" style="--d:0"><span class="tag">FREE</span>Open source, MIT. No cloud, no login.</span>
+    <h1 class="rv" style="--d:1">Every API key your AI apps need. <span class="grad">One place.</span></h1>
+    <p class="lede rv" style="--d:2">MCP Creds is a tiny local app for the tokens behind <b>Claude, Cursor, VS Code</b> and every MCP server. Save a key once and your AI fetches it. Nothing ever leaves your machine.</p>
+    <div class="ctas rv" style="--d:3">
+      <a class="btn primary lg dl" id="dlMain" href="https://github.com/manishh-13/mcp-creds/releases/latest"><svg class="i" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M4 20h16"/></svg><span>Download for free</span></a>
+      <a class="btn lg" href="https://github.com/manishh-13/mcp-creds" rel="noopener"><svg viewBox="0 0 24 24" fill="currentColor" style="width:18px;height:18px"><path d="M12 .5a11.5 11.5 0 0 0-3.64 22.41c.58.1.79-.25.79-.56v-2c-3.2.7-3.88-1.37-3.88-1.37-.53-1.33-1.28-1.69-1.28-1.69-1.05-.71.08-.7.08-.7 1.16.08 1.77 1.19 1.77 1.19 1.03 1.77 2.7 1.26 3.36.96.1-.75.4-1.26.73-1.55-2.55-.29-5.24-1.28-5.24-5.68 0-1.26.45-2.28 1.19-3.09-.12-.29-.52-1.46.11-3.05 0 0 .97-.31 3.17 1.18a11 11 0 0 1 5.77 0c2.2-1.49 3.17-1.18 3.17-1.18.63 1.59.23 2.76.11 3.05.74.81 1.19 1.83 1.19 3.09 0 4.41-2.69 5.39-5.25 5.67.41.36.78 1.06.78 2.14v3.17c0 .31.21.67.8.56A11.5 11.5 0 0 0 12 .5z"/></svg>View on GitHub</a>
+    </div>
+    <p class="alt rv" style="--d:4"><span id="dlNote">macOS (Apple silicon), Windows and Linux.</span> Or run from source: <code>python3 mcpcreds.py ui</code></p>
+    <div class="stage rv" style="--d:5">
+      <div class="window" id="win">
+        <div class="chrome" aria-hidden="true"><i></i><i></i><i></i><span>MCP Creds</span></div>
+        <video autoplay muted loop playsinline preload="metadata" poster="assets/hero.webp" aria-label="Demo: pasting a GitHub token, MCP Creds names it, saves it, then connects Claude Desktop, Claude Code and Cursor in one click">
+          <source src="assets/demo.webm" type="video/webm"><source src="assets/demo.mp4" type="video/mp4">
+          <img src="assets/hero.webp" alt="MCP Creds app with saved API keys" width="1280" height="800">
+        </video>
+      </div>
+    </div>
+  </header>
+
+  <div class="works rv">
+    <p>Works with every app that speaks MCP</p>
+    <div class="chips">
+      <span class="chip"><i style="--c:#e08b6d">Cl</i>Claude Desktop</span>
+      <span class="chip"><i style="--c:#f0a37f">CC</i>Claude Code</span>
+      <span class="chip"><i style="--c:#e5e7eb">Cu</i>Cursor</span>
+      <span class="chip"><i style="--c:#22d3ee">Ws</i>Windsurf</span>
+      <span class="chip"><i style="--c:#60a5fa">VS</i>VS Code</span>
+      <span class="chip"><i style="--c:#a78bfa">+</i>Any MCP client</span>
+    </div>
+    <p class="models" style="text-transform:none;letter-spacing:0;font-size:14.5px;margin-top:16px">With any model: Claude, GPT, Gemini, Llama, Mistral or your own.</p>
+  </div>
+
+  <section id="problem">
+    <div class="center">
+      <div class="kicker rv">The problem</div>
+      <h2 class="rv">Ten AI apps. Ten configs. The same token pasted everywhere.</h2>
+      <p class="sub rv">Every new MCP server wants its own key in its own JSON file, in plain text. Rotate a token and you hunt through all of them.</p>
+    </div>
+    <div class="ba">
+      <div class="pane bad rv"><h3><span class="pl">BEFORE</span>Secrets scattered in configs</h3><p>claude_desktop_config.json, mcp.json, .env files, and wherever else you pasted it last.</p>
+<pre><span class="p">{</span>
+  <span class="k">"github"</span><span class="p">: {</span>
+    <span class="k">"command"</span><span class="p">:</span> <span class="s">"npx"</span><span class="p">,</span>
+    <span class="k">"args"</span><span class="p">: [</span><span class="s">"-y"</span><span class="p">,</span> <span class="s">"server-github"</span><span class="p">],</span>
+    <span class="k">"env"</span><span class="p">: {</span>
+      <span class="k">"GITHUB_TOKEN"</span><span class="p">:</span> <span class="leak">"ghp_9f2kLmQx81zRtY7uW3"</span>
+    <span class="p">}</span>
+  <span class="p">}</span>
+<span class="p">}</span></pre></div>
+      <div class="pane good rv"><h3><span class="pl">AFTER</span>One local store, zero secrets in configs</h3><p>MCP Creds hands the key to the server when it starts. One click moves your existing tokens over.</p>
+<pre><span class="p">{</span>
+  <span class="k">"github"</span><span class="p">: {</span>
+    <span class="k">"command"</span><span class="p">:</span> <span class="s">"MCP Creds"</span><span class="p">,</span>
+    <span class="k">"args"</span><span class="p">: [</span><span class="s">"run"</span><span class="p">,</span> <span class="s">"-e"</span><span class="p">,</span> <span class="safe">"GITHUB_TOKEN"</span><span class="p">,</span>
+             <span class="s">"--"</span><span class="p">,</span> <span class="s">"npx"</span><span class="p">,</span> <span class="s">"-y"</span><span class="p">,</span> <span class="s">"server-github"</span><span class="p">]</span>
+  <span class="p">}</span>
+<span class="p">}</span>
+<span class="p">// no token here. Rotate it once, in one place.</span></pre></div>
+    </div>
+  </section>
+
+  <section id="how">
+    <div class="center">
+      <div class="kicker rv">How it works</div>
+      <h2 class="rv">Set up in a minute. Never paste a token again.</h2>
+    </div>
+    <div class="steps">
+      <div class="step rv"><h3>Paste your keys</h3><p>Copy a token anywhere and press <kbd>Cmd</kbd> <kbd>V</kbd> in the app. It spots the service and names the key for you. Or drop in a <code>.env</code> or your existing MCP config.</p></div>
+      <div class="step rv"><h3>Connect your apps</h3><p>One click finds Claude, Cursor, VS Code and the rest on your computer and plugs MCP Creds in. Each config is backed up first, and Disconnect puts it back.</p></div>
+      <div class="step rv"><h3>Just ask</h3><p>"List my open pull requests." When a task needs a key, the AI checks MCP Creds on its own. You never have to name it or paste it.</p></div>
+    </div>
+  </section>
+
+  <section id="features">
+    <div class="center">
+      <div class="kicker rv">Features</div>
+      <h2 class="rv">Small app. Thought through.</h2>
+      <p class="sub rv">Built for people who juggle more tokens than they can remember.</p>
+    </div>
+    <div class="bento">
+      <article class="tile w3 rv" style="--c:#6ee7b7">
+        <div class="ticon"><svg class="i" viewBox="0 0 24 24"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8z"/></svg></div>
+        <h3>Smart paste</h3><p>Recognises 20+ services from the key itself and names it for you. Paste <code>ghp_...</code>, get <code>GITHUB_TOKEN</code>.</p>
+        <img class="float" src="assets/smart-paste.webp" alt="New key dialog that auto-named a pasted GitHub token GITHUB_TOKEN" loading="lazy" width="520" height="476">
+      </article>
+      <article class="tile w3 rv" style="--c:#7dd3fc">
+        <div class="ticon"><svg class="i" viewBox="0 0 24 24"><path d="M9 2v5M15 2v5M6 7h12v4a6 6 0 0 1-12 0V7zM12 17v5"/></svg></div>
+        <h3>One-click connect</h3><p>Finds the AI apps on your computer and connects them all. Spots tokens sitting in plain text and moves them in.</p>
+        <img class="float" src="assets/connect.webp" alt="Connect panel listing Claude Desktop, Claude Code and Cursor with a Connect all button" loading="lazy" width="480" height="976" style="max-height:420px;object-fit:cover;object-position:top">
+      </article>
+      <article class="tile w2 rv" style="--c:#a78bfa">
+        <div class="ticon"><svg class="i" viewBox="0 0 24 24"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></div>
+        <h3>Bring your setup</h3><p>Paste or drop a <code>.env</code>, a JSON file or your <code>claude_desktop_config.json</code>. Pick what to keep. Placeholders are skipped.</p>
+      </article>
+      <article class="tile w2 rv" style="--c:#fbbf24">
+        <div class="ticon"><svg class="i" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M7 10h6M7 14h10"/></svg></div>
+        <h3>Multi-part credentials</h3><p>AWS access key, secret and session token? Paste them together as one key. The AI reads every part, and <code>run</code> hands each one to the right variable.</p>
+      </article>
+      <article class="tile w2 rv" style="--c:#fb7185">
+        <div class="ticon"><svg class="i" viewBox="0 0 24 24"><path d="M4 17l6-6-6-6M12 19h8"/></svg></div>
+        <h3>Keys for any MCP server</h3><p>Start a server through MCP Creds and it gets its token as an environment variable. The config holds no secret and the AI never sees it.</p>
+      </article>
+      <article class="tile w4 rv" style="--c:#7dd3fc">
+        <div class="ticon"><svg class="i" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></div>
+        <h3>Every key at a glance</h3><p>Search by name, note or service. Reveal, copy, edit, export. Keyboard first: <code>N</code> new, <code>Cmd K</code> search.</p>
+        <div class="svc">
+          <span style="--c:#e08b6d">Anthropic</span><span style="--c:#34d399">OpenAI</span><span style="--c:#d1d9e0">GitHub</span><span style="--c:#fbbf24">AWS</span><span style="--c:#f472b6">Slack</span><span style="--c:#f1f5f9">Notion</span><span style="--c:#8b83ff">Stripe</span><span style="--c:#60a5fa">Google</span><span style="--c:#fcd34d">Hugging Face</span><span style="--c:#fb7a5a">Groq</span><span style="--c:#818cf8">Linear</span><span style="--c:#c084fc">Figma</span><span style="--c:#4ade80">Supabase</span><span style="--c:#fc6d26">GitLab</span><span style="--c:#22d3ee">Perplexity</span><span style="--c:#7dd3fc">Postgres</span>
+        </div>
+      </article>
+      <article class="tile w2 rv" style="--c:#6ee7b7">
+        <div class="ticon"><svg class="i" viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6l8-3z"/></svg></div>
+        <h3>Yours, offline</h3><p>One JSON file on your disk. No account, no server, no telemetry, no dependencies. Read the code in an afternoon.</p>
+      </article>
+    </div>
+  </section>
+
+  <section id="security">
+    <div class="center">
+      <div class="kicker rv">Security</div>
+      <h2 class="rv">Honest about what it protects.</h2>
+      <p class="sub rv">No magic, no marketing. Here is exactly how your keys are kept.</p>
+    </div>
+    <div class="sec">
+      <div class="pane rv"><h3 style="margin-bottom:16px">What it does</h3>
+        <ul class="list ok">
+          <li><svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Keeps keys in <code>~/.mcpcreds/store.json</code>, readable only by your user (folder 0700, file 0600). Atomic writes.</span></li>
+          <li><svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>The app only listens on 127.0.0.1, checks the Host header and needs a random per-session token, so websites cannot read your keys.</span></li>
+          <li><svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Takes tokens out of your AI app configs, so they stop leaking into backups, screenshots and dotfile repos.</span></li>
+          <li><svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Backs up every config before touching it, refuses configs with comments, and never overwrites the original backup.</span></li>
+        </ul></div>
+      <div class="pane rv"><h3 style="margin-bottom:16px">What it does not</h3>
+        <ul class="list no">
+          <li><svg class="i" viewBox="0 0 24 24"><path d="M12 8v5M12 16.5v.01"/><circle cx="12" cy="12" r="9"/></svg><span>It does not encrypt the file. Protection is the same as <code>~/.aws/credentials</code> or a <code>.env</code> file.</span></li>
+          <li><svg class="i" viewBox="0 0 24 24"><path d="M12 8v5M12 16.5v.01"/><circle cx="12" cy="12" r="9"/></svg><span>Any program running as you can read it, and any AI app you connect can ask for a key. Only connect apps you trust.</span></li>
+          <li><svg class="i" viewBox="0 0 24 24"><path d="M12 8v5M12 16.5v.01"/><circle cx="12" cy="12" r="9"/></svg><span>It is not a team password manager. It is one person's keys on one machine.</span></li>
+        </ul></div>
+    </div>
+  </section>
+
+  <section id="faq">
+    <div class="center"><div class="kicker rv">FAQ</div><h2 class="rv">Questions, answered.</h2></div>
+    <div class="faq">
+      <details class="rv"><summary>What is MCP Creds?</summary><p>A small desktop app that keeps all the API keys and tokens your AI apps need in one local file. You save a key once, connect MCP Creds to your AI apps once, and they fetch keys from it through the Model Context Protocol (MCP), the standard plug-in system for AI apps.</p></details>
+      <details class="rv"><summary>Does it work with ChatGPT, Gemini or local models?</summary><p>Yes. MCP Creds talks to the app, not the model. Any model works inside any app that supports MCP: Claude Desktop, Claude Code, Cursor, Windsurf, VS Code and others. Apps without MCP support cannot use it.</p></details>
+      <details class="rv"><summary>Do I have to tell the AI which key to use?</summary><p>No. MCP Creds tells the AI to check it whenever a task needs a key. Just ask for the task. For other MCP servers, the token is handed over at startup, so the AI does not need to do anything.</p></details>
+      <details class="rv"><summary>How do I give an MCP server its token without pasting it into the config?</summary><p>Start the server through MCP Creds: <code>python3 mcpcreds.py run -e GITHUB_TOKEN -- npx your-server</code>. It sets the saved key as an environment variable and starts the server. In the app, "Move them into MCP Creds" rewrites your existing configs this way for you.</p></details>
+      <details class="rv"><summary>How do I store AWS credentials with an access key and a secret?</summary><p>Paste them together into one key, one per line, or let MCP Creds split them into separate keys. The AI is told to read every part, and <code>run -e AWS_SECRET_ACCESS_KEY=AWS_CREDENTIALS</code> hands just the right part to a server.</p></details>
+      <details class="rv"><summary>Is my data sent anywhere?</summary><p>No. There is no cloud, account or telemetry. Keys stay in <code>~/.mcpcreds/store.json</code> on your machine. The code is open source, so you can check.</p></details>
+      <details class="rv"><summary>macOS says the app is from an unidentified developer.</summary><p>The app is not notarized by Apple yet. Right-click it in Applications and choose Open the first time. After that it opens normally. Prefer not to? Run it from source with <code>python3 mcpcreds.py ui</code>.</p></details>
+      <details class="rv"><summary>Is it free?</summary><p>Yes. Free and open source under the MIT license. Issues and pull requests are welcome on GitHub.</p></details>
+    </div>
+  </section>
+
+  <div class="final rv">
+    <img src="assets/icon-192.png" alt="" width="84" height="84">
+    <h2>Stop pasting tokens.<br><span class="grad">Start asking.</span></h2>
+    <p class="sub">Free, open source and local. Set up in a minute.</p>
+    <div class="ctas">
+      <a class="btn primary lg dl" href="https://github.com/manishh-13/mcp-creds/releases/latest"><svg class="i" viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M4 20h16"/></svg><span class="dlLabel">Download for free</span></a>
+      <a class="btn lg" href="https://github.com/manishh-13/mcp-creds" rel="noopener">Star on GitHub</a>
+    </div>
+  </div>
+
+  <footer>
+    <span>MCP Creds, MIT licensed. Made for people who juggle too many tokens.</span>
+    <span class="fl"><a href="https://github.com/manishh-13/mcp-creds">GitHub</a><a href="https://github.com/manishh-13/mcp-creds/releases">Releases</a><a href="https://github.com/manishh-13/mcp-creds/issues">Issues</a><a href="https://github.com/manishh-13/mcp-creds/blob/main/SECURITY.md">Security</a></span>
+  </footer>
+</div>
+</main>
+
+<script>
+(() => {
+  const REL = "https://github.com/manishh-13/mcp-creds/releases/latest/download/";
+  const ua = navigator.userAgent, plat = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
+  let os = /Win/i.test(plat + ua) ? "win" : /Mac/i.test(plat + ua) ? "mac" : /Linux/i.test(plat + ua) && !/Android/i.test(ua) ? "linux" : "";
+  const map = {mac: ["MCP-Creds-macOS.zip", "Download for macOS", "For Apple silicon Macs. Also on Windows and Linux."],
+               win: ["MCP-Creds-Windows.zip", "Download for Windows", "Also on macOS and Linux."],
+               linux: ["MCP-Creds-Linux.tar.gz", "Download for Linux", "Also on macOS and Windows."]};
+  if (map[os]) {
+    document.querySelectorAll("a.dl").forEach(a => a.href = REL + map[os][0]);
+    document.querySelector("#dlMain span").textContent = map[os][1];
+    document.querySelectorAll(".dlLabel").forEach(e => e.textContent = map[os][1]);
+    document.getElementById("dlNote").textContent = map[os][2];
+  }
+  fetch("https://api.github.com/repos/manishh-13/mcp-creds").then(r => r.ok ? r.json() : null).then(j => {
+    if (j && typeof j.stargazers_count === "number" && j.stargazers_count > 0) document.getElementById("stars").textContent = j.stargazers_count.toLocaleString();
+  }).catch(() => {});
+
+  const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } }), {rootMargin: "0px 0px -8% 0px"});
+  document.querySelectorAll(".rv").forEach((el, i) => { if (!el.closest(".hero")) el.style.transitionDelay = ((i % 3) * 80) + "ms"; io.observe(el); });
+
+  const win = document.getElementById("win");
+  const tilt = () => { const r = win.getBoundingClientRect(), vh = innerHeight;
+    const p = Math.min(1, Math.max(0, (vh - r.top) / (vh * 0.9)));
+    win.style.transform = `rotateX(${14 * (1 - p)}deg) scale(${0.94 + 0.06 * p})`; };
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches && innerWidth > 900) { addEventListener("scroll", tilt, {passive: true}); tilt(); }
+
+  document.querySelectorAll(".bento").forEach(g => g.addEventListener("pointermove", e => {
+    for (const t of g.children) { const r = t.getBoundingClientRect(); t.style.setProperty("--mx", (e.clientX - r.left) + "px"); t.style.setProperty("--my", (e.clientY - r.top) + "px"); }
+  }));
+})();
+</script>
+</body>
+</html>
