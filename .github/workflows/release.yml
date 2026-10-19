@@ -41,6 +41,9 @@ jobs:
           echo "$out"
           echo "$out" | grep -q '"mcp-creds"'
           echo "$out" | grep -q '"text": "ok"'
+          got=$("${{ matrix.bin }}" run -e INJECTED=SMOKE_KEY -- python -c "import os; print(os.environ['INJECTED'])")
+          echo "run -> $got"
+          [ "$(echo "$got" | tr -d '\r')" = "ok" ]
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.os }}

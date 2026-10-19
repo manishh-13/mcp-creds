@@ -1,10 +1,13 @@
 import io
 import json
+import subprocess
+from pathlib import Path
 import os
 import stat
 import sys
 import tempfile
 import threading
+import time
 import unittest
 import urllib.request
 import urllib.error
@@ -183,6 +186,210 @@ class HttpTests(Base):
         self.assertEqual(self.req("POST", "/api/items", {"name": "bad name", "value": "v"})[0], 400)
         self.assertEqual(self.req("DELETE", "/api/items/A.B-c_1")[0], 200)
         self.assertEqual(self.req("DELETE", "/api/items/A.B-c_1")[0], 404)
+
+
+class ConnectTests(Base):
+    def setUp(self):
+        super().setUp()
+        self.apps = tempfile.TemporaryDirectory()
+        os.environ["MCPCREDS_APPS_HOME"] = self.apps.name
+        self.cat = {a["id"]: a for a in mc.apps_catalog()}
+
+    def tearDown(self):
+        os.environ.pop("MCPCREDS_APPS_HOME", None)
+        self.apps.cleanup()
+        super().tearDown()
+
+    def write(self, app_id, data):
+        p = self.cat[app_id]["path"]
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(json.dumps(data))
+        return p
+
+    def status(self, app_id):
+        return next(a for a in mc.apps_overview()["apps"] if a["id"] == app_id)
+
+    def test_detects_only_installed(self):
+        self.cat["cursor"]["marker"].mkdir(parents=True)
+        st = {a["id"]: a["installed"] for a in mc.apps_overview()["apps"]}
+        self.assertTrue(st["cursor"])
+        self.assertFalse(st["claude"])
+
+    def test_connect_adds_entry_keeps_others_and_backs_up(self):
+        p = self.write("claude", {"mcpServers": {"fs": {"command": "npx", "args": ["fs"]}}, "other": 1})
+        mc.connect_app("claude")
+        data = json.loads(p.read_text())
+        self.assertEqual(data["other"], 1)
+        self.assertIn("fs", data["mcpServers"])
+        self.assertEqual(data["mcpServers"]["mcp-creds"]["args"][-1], "mcp")
+        self.assertTrue(self.status("claude")["connected"])
+        self.assertFalse(Path(str(p) + ".mcpcreds-backup").exists())  # never next to the config
+        orig = mc.backups_dir() / "claude-original.json"
+        self.assertEqual(json.loads(orig.read_text())["other"], 1)
+        self.assertEqual(stat.S_IMODE(os.stat(orig).st_mode), 0o600) if os.name != "nt" else None
+        self.assertTrue(mc.undo_app("claude"))
+        self.assertNotIn("mcp-creds", json.loads(p.read_text())["mcpServers"])
+
+    def test_creates_config_when_app_installed_but_no_file(self):
+        self.cat["cursor"]["marker"].mkdir(parents=True)
+        mc.connect_app("cursor")
+        self.assertIn("mcp-creds", json.loads(self.cat["cursor"]["path"].read_text())["mcpServers"])
+        self.assertTrue(mc.undo_app("cursor"))
+        self.assertEqual(json.loads(self.cat["cursor"]["path"].read_text())["mcpServers"], {})
+
+    def test_vscode_format(self):
+        self.write("vscode", {"servers": {}})
+        mc.connect_app("vscode")
+        e = json.loads(self.cat["vscode"]["path"].read_text())["servers"]["mcp-creds"]
+        self.assertEqual(e["type"], "stdio")
+
+    def test_secure_moves_tokens_and_wraps(self):
+        p = self.write("claude", {"mcpServers": {
+            "github": {"command": "npx", "args": ["-y", "gh-mcp"],
+                       "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_live123", "LOG_LEVEL": "debug"}},
+            "brave": {"command": "npx", "env": {"BRAVE_API_KEY": "<your-key>"}},
+            "remote": {"url": "https://x.example/mcp"}}})
+        st = self.status("claude")
+        self.assertEqual([x["env"] for x in st["secrets"]], ["GITHUB_PERSONAL_ACCESS_TOKEN"])
+        r = mc.connect_app("claude", secure=True)
+        self.assertEqual(r["moved"], 1)
+        gh = json.loads(p.read_text())["mcpServers"]["github"]
+        self.assertEqual(gh["env"], {"LOG_LEVEL": "debug"})
+        self.assertEqual(gh["command"], mc.cmd_prefix()[0])
+        self.assertEqual(gh["args"][-5:], ["GITHUB_PERSONAL_ACCESS_TOKEN", "--", "npx", "-y", "gh-mcp"])
+        self.assertEqual(mc.load()["GITHUB_PERSONAL_ACCESS_TOKEN"]["value"], "ghp_live123")
+        self.assertEqual(self.status("claude")["secrets"], [])
+        self.assertEqual(mc.connect_app("claude", secure=True)["moved"], 0)  # idempotent
+
+    def test_secure_name_conflict_keeps_both(self):
+        mc.set_item("API_KEY", "existing")
+        p = self.write("cursor", {"mcpServers": {"my srv": {"command": "uvx", "env": {"API_KEY": "different"}}}})
+        mc.connect_app("cursor", secure=True)
+        self.assertEqual(mc.load()["API_KEY"]["value"], "existing")
+        self.assertEqual(mc.load()["API_KEY__MY_SRV"]["value"], "different")
+        self.assertIn("API_KEY=API_KEY__MY_SRV", json.loads(p.read_text())["mcpServers"]["my srv"]["args"])
+
+    def test_three_way_name_collision_loses_nothing(self):
+        mc.set_item("GITHUB_TOKEN", "A")
+        self.write("claude", {"mcpServers": {"github": {"command": "npx", "env": {"GITHUB_TOKEN": "B"}}}})
+        self.write("cursor", {"mcpServers": {"github": {"command": "npx", "env": {"GITHUB_TOKEN": "C"}}}})
+        mc.connect_app("claude", secure=True)
+        mc.connect_app("cursor", secure=True)
+        self.assertEqual(sorted(v["value"] for v in mc.load().values()), ["A", "B", "C"])
+        for app_id, want in (("claude", "B"), ("cursor", "C")):
+            args = json.loads(self.cat[app_id]["path"].read_text())["mcpServers"]["github"]["args"]
+            key = args[args.index("-e") + 1].partition("=")[2] or "GITHUB_TOKEN"
+            self.assertEqual(mc.load()[key]["value"], want)
+
+    def test_original_backup_never_overwritten(self):
+        self.write("claude", {"mcpServers": {"gh": {"command": "npx", "env": {"GH_TOKEN": "ghp_orig"}}}})
+        mc.connect_app("claude", secure=True)
+        mc.connect_app("claude")
+        mc.connect_app("claude")
+        orig = json.loads((mc.backups_dir() / "claude-original.json").read_text())
+        self.assertEqual(orig["mcpServers"]["gh"]["env"]["GH_TOKEN"], "ghp_orig")
+
+    def test_disconnect_is_targeted_and_restores_tokens(self):
+        p = self.write("claude", {"mcpServers": {"gh": {"command": "npx", "args": ["-y", "gh"], "cwd": "/w",
+                                                        "env": {"GH_TOKEN": "ghp_x", "LOG": "1"}}}, "keep": True})
+        mc.connect_app("claude", secure=True)
+        data = json.loads(p.read_text())
+        data["mcpServers"]["added_later"] = {"command": "uvx", "args": ["thing"]}
+        data["later"] = 2
+        p.write_text(json.dumps(data))
+        self.assertTrue(mc.undo_app("claude"))
+        after = json.loads(p.read_text())
+        self.assertEqual(after["mcpServers"]["gh"], {"command": "npx", "args": ["-y", "gh"], "cwd": "/w",
+                                                     "env": {"LOG": "1", "GH_TOKEN": "ghp_x"}})
+        self.assertIn("added_later", after["mcpServers"])
+        self.assertNotIn("mcp-creds", after["mcpServers"])
+        self.assertEqual((after["keep"], after["later"]), (True, 2))
+        self.assertFalse(mc.undo_app("claude"))
+
+    def test_refuses_to_write_if_app_changed_file(self):
+        p = self.write("claude", {"mcpServers": {}})
+        data, fp = mc._read_cfg(p)
+        time.sleep(0.01); p.write_text(json.dumps({"mcpServers": {"new": {"command": "x"}}, "pad": "changed"}))
+        with self.assertRaises(mc.ConfigChanged):
+            mc._write_cfg("claude", p, data, fp)
+        self.assertIn("new", json.loads(p.read_text())["mcpServers"])
+
+    def test_skips_variable_references(self):
+        self.write("claude", {"mcpServers": {"a": {"command": "x", "env": {"API_KEY": "Bearer ${input:k}", "T_TOKEN": "{{t}}"}}}})
+        self.assertEqual(self.status("claude")["secrets"], [])
+
+    def test_odd_shapes_do_not_crash_or_wipe(self):
+        p = self.write("claude", {"mcpServers": ["not", "a", "dict"]})
+        self.assertTrue(self.status("claude")["error"])
+        with self.assertRaises(ValueError):
+            mc.connect_app("claude")
+        self.assertEqual(json.loads(p.read_text())["mcpServers"], ["not", "a", "dict"])
+
+    @unittest.skipIf(os.name == "nt", "symlinks need admin on Windows")
+    def test_symlinked_config_stays_a_symlink(self):
+        real = Path(self.apps.name) / "dotfiles" / "claude.json"
+        real.parent.mkdir(); real.write_text(json.dumps({"mcpServers": {}}))
+        link = self.cat["claude"]["path"]; link.parent.mkdir(parents=True); link.symlink_to(real)
+        mc.connect_app("claude")
+        self.assertTrue(link.is_symlink())
+        self.assertIn("mcp-creds", json.loads(real.read_text())["mcpServers"])
+
+    def test_refuses_jsonc(self):
+        p = self.cat["vscode"]["path"]; p.parent.mkdir(parents=True)
+        p.write_text('{ // comment\n "servers": {} }')
+        self.assertIn("comments", self.status("vscode")["error"])
+        with self.assertRaises(ValueError):
+            mc.connect_app("vscode")
+        self.assertIn("// comment", p.read_text())
+
+    def test_http_endpoints(self):
+        self.cat["cursor"]["marker"].mkdir(parents=True)
+        srv, _ = mc.make_server(0, token="t")
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        base = f"http://127.0.0.1:{srv.server_address[1]}"
+        def call(path, body=None):
+            r = urllib.request.Request(base + path, method="POST" if body is not None else "GET",
+                                       data=json.dumps(body).encode() if body is not None else None,
+                                       headers={"X-Token": "t", "Content-Type": "application/json"})
+            with urllib.request.urlopen(r) as resp:
+                return json.loads(resp.read())
+        try:
+            self.assertIn("apps", call("/api/apps"))
+            res = call("/api/apps/connect", {"ids": ["cursor", "nope"]})
+            self.assertEqual([x["ok"] for x in res["results"]], [True, False])
+            self.assertTrue(call("/api/apps/undo", {"id": "cursor"})["ok"])
+        finally:
+            srv.shutdown(); srv.server_close()
+
+
+class RunTests(Base):
+    def run_cli(self, *args):
+        script = str(Path(mc.__file__).resolve())
+        return subprocess.run([sys.executable, script, "run", *args], capture_output=True, text=True,
+                              env={**os.environ})
+
+    def test_injects_mapped_key(self):
+        mc.set_item("GITHUB_TOKEN", "ghp_secret")
+        r = self.run_cli("-e", "GH_PAT=GITHUB_TOKEN", "--", sys.executable, "-c",
+                         "import os,sys; sys.stdout.write(os.environ['GH_PAT'])")
+        self.assertEqual((r.returncode, r.stdout), (0, "ghp_secret"))
+
+    def test_stdio_passes_through(self):
+        mc.set_item("K", "v")
+        script = str(Path(mc.__file__).resolve())
+        r = subprocess.run([sys.executable, script, "run", "-e", "K", "--", sys.executable, "-c",
+                            "import sys,os; sys.stdout.write(sys.stdin.read().upper()+os.environ['K'])"],
+                           input="hello", capture_output=True, text=True)
+        self.assertEqual(r.stdout, "HELLOv")
+
+    def test_missing_key_explains(self):
+        r = self.run_cli("-e", "NOPE", "--", sys.executable, "-c", "pass")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("no saved key named NOPE", r.stderr)
+
+    def test_exit_code_propagates(self):
+        r = self.run_cli("--", sys.executable, "-c", "raise SystemExit(3)")
+        self.assertEqual(r.returncode, 3)
 
 
 class CliTests(Base):

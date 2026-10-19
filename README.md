@@ -36,27 +36,28 @@ It opens in your browser. Install `pywebview` (`pip install pywebview`) and it o
 
 ## Connect your AI apps
 
-Click **Connect AI** in the app: it shows the exact snippet for Claude Desktop, Cursor, Claude Code and VS Code, with the right path already filled in, and a copy button. (From a terminal: `python3 mcpcreds.py config`.) It looks like this:
+Click **Connect AI**. MCP Creds finds the AI apps on your computer (Claude Desktop, Claude Code, Cursor, Windsurf, VS Code) and connects them with one click. It saves a backup of each config first, and every app has an **Undo**.
+
+It works with any model: Claude, GPT, Gemini, a local model. All it needs is an app that supports MCP.
+
+You never have to name a key. When a task needs one, the AI checks MCP Creds on its own through two tools: `list_credentials` (names only) and `get_credential`.
+
+### Stop pasting tokens into other MCP servers
+
+Most MCP servers (GitHub, Slack, Notion, Brave Search...) read their token from an environment variable when they start, so today the token sits in plain text in your app's config. MCP Creds spots these and offers to **move them**. The config then starts the server through MCP Creds:
 
 ```json
-{
-  "mcpServers": {
-    "mcp-creds": {
-      "command": "python3",
-      "args": ["/full/path/to/mcpcreds.py", "mcp"]
-    }
-  }
+"github": {
+  "command": "/Applications/MCP Creds.app/Contents/MacOS/MCP Creds",
+  "args": ["run", "-e", "GITHUB_PERSONAL_ACCESS_TOKEN", "--", "npx", "-y", "@modelcontextprotocol/server-github"]
 }
 ```
 
-| App | Config file |
-|---|---|
-| Claude Desktop (macOS) | `~/Library/Application Support/Claude/claude_desktop_config.json` |
-| Claude Desktop (Windows) | `%APPDATA%\Claude\claude_desktop_config.json` |
-| Claude Code | `claude mcp add mcp-creds -- python3 /full/path/to/mcpcreds.py mcp` |
-| Cursor | `~/.cursor/mcp.json` |
+`run` puts the saved key into that server's environment and starts it. The config holds no secret, the AI never sees the token, and when a token changes you update it once in MCP Creds. Use `-e VAR=KEY` when the server's variable name differs from your saved key's name.
 
-Then just ask: *"Use my GitHub token from MCP Creds to list my open PRs."* The AI calls `list_credentials`, sees `GITHUB_TOKEN`, and calls `get_credential`.
+On macOS, move the app into **Applications** before connecting: AI apps remember where MCP Creds lives.
+
+Prefer to do it by hand? The app shows the exact snippet for each app, or run `python3 mcpcreds.py config`.
 
 ## CLI
 
@@ -66,6 +67,8 @@ python3 mcpcreds.py get GITHUB_TOKEN      # prints the value, great for $(...)
 python3 mcpcreds.py list
 python3 mcpcreds.py rm GITHUB_TOKEN
 python3 mcpcreds.py export > backup.json
+python3 mcpcreds.py connect --secure      # connect every detected AI app and move their tokens
+python3 mcpcreds.py run -e GH=GITHUB_TOKEN -- some-mcp-server
 ```
 
 Use it inside other MCP configs or scripts: `export GITHUB_TOKEN=$(python3 mcpcreds.py get GITHUB_TOKEN)`.
@@ -81,7 +84,7 @@ The web UI listens on `127.0.0.1` only, rejects requests whose `Host` is not loc
 ## Tests and builds
 
 ```bash
-python3 -m unittest -v          # 16 tests, stdlib only
+python3 -m unittest -v          # 31 tests, stdlib only
 ./packaging/build.sh            # builds the desktop app for your OS into dist/ (needs uv)
 ```
 

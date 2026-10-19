@@ -11,6 +11,11 @@ No cloud, no login, no dependencies. Everything stays in ~/.mcpcreds/store.json.
   python3 mcpcreds.py list            list names
   python3 mcpcreds.py rm NAME
   python3 mcpcreds.py export          print everything as JSON
+  python3 mcpcreds.py connect [APP...] [--secure]
+                                      add MCP Creds to your AI apps (all detected if none given);
+                                      --secure also moves tokens out of their configs
+  python3 mcpcreds.py run -e VAR[=KEY] ... -- command args
+                                      start another MCP server with saved keys as env vars
 """
 import datetime
 import html as htmlmod
@@ -284,14 +289,447 @@ def serve_mcp(stdin=None, stdout=None) -> None:
             stdout.flush()
 
 
+# ---------------------------------------------------------------- run: hand keys to other MCP servers
+
+ENV_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+EXTRA_BIN_DIRS = ["/opt/homebrew/bin", "/usr/local/bin", "~/.volta/bin", "~/.bun/bin", "~/.deno/bin",
+                  "~/.local/bin", "~/.cargo/bin", "~/.npm-global/bin", "~/Library/pnpm"]
+
+
+def augmented_path(path: str) -> str:
+    """GUI apps launch MCP servers with a tiny PATH, so npx/uvx/node often vanish. Add the usual places."""
+    parts = [x for x in (path or "").split(os.pathsep) if x]
+    extra = [os.path.expanduser(d) for d in EXTRA_BIN_DIRS]
+    nvm = Path.home() / ".nvm" / "versions" / "node"
+    if nvm.is_dir():
+        extra += [str(v / "bin") for v in sorted(nvm.iterdir(), reverse=True)]
+    for d in extra:
+        if d not in parts and os.path.isdir(d):
+            parts.append(d)
+    return os.pathsep.join(parts)
+
+
+def run_with_keys(argv: list) -> int:
+    """mcpcreds run -e VAR[=KEY] ... [--all] -- command args...
+
+    Starts `command` with the requested stored keys set as environment variables. MCP servers
+    read their tokens from env at startup, so their config no longer has to contain any secret.
+    """
+    pairs, use_all, i = [], False, 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--":
+            i += 1
+            break
+        if a in ("-e", "--env") and i + 1 < len(argv):
+            var, _, key = argv[i + 1].partition("=")
+            pairs.append((var, key or var))
+            i += 2
+            continue
+        if a == "--all":
+            use_all, i = True, i + 1
+            continue
+        break
+    cmd = argv[i:]
+    if not cmd:
+        print("usage: run -e VAR[=KEY] [-e ...] [--all] -- command [args...]", file=sys.stderr)
+        return 2
+    items = load()
+    if use_all:
+        pairs = [(k, k) for k in items if ENV_RE.match(k)] + pairs
+    missing = sorted({key for _, key in pairs if key not in items})
+    if missing:
+        print(f"MCP Creds: no saved key named {', '.join(missing)}. Add it in the MCP Creds app, "
+              "then restart this AI app.", file=sys.stderr)
+        return 1
+    env = os.environ.copy()
+    if FROZEN:  # undo PyInstaller's library path so child processes (node, python) load their own libs
+        for var in ("LD_LIBRARY_PATH", "DYLD_LIBRARY_PATH"):
+            orig = env.pop(var + "_ORIG", None)
+            if orig is not None:
+                env[var] = orig
+            else:
+                env.pop(var, None)
+    for var, key in pairs:
+        env[var] = items[key]["value"]
+    env["PATH"] = augmented_path(env.get("PATH", ""))
+    exe = shutil.which(cmd[0], path=env["PATH"]) or cmd[0]
+    if os.name == "posix":
+        try:
+            os.execve(exe, cmd, env)  # replace this process: stdio flows straight through
+        except OSError as e:
+            print(f"MCP Creds: could not start {cmd[0]}: {e}", file=sys.stderr)
+            return 127
+    return _run_windows(exe, cmd, env)
+
+
+def _cmd_quote(a: str) -> str:
+    if a and not any(c in a for c in ' \t&|<>^%"(),;='):
+        return a
+    return '"' + a.replace('"', '""') + '"'
+
+
+def _run_windows(exe: str, cmd: list, env: dict) -> int:
+    """Windows has no exec: start the child, and tie its life to ours with a kill-on-close job
+    so it never lingers after the AI app stops us. .cmd/.bat shims (npx.cmd) need cmd.exe quoting."""
+    if exe.lower().endswith((".cmd", ".bat")):
+        line = " ".join([_cmd_quote(exe)] + [_cmd_quote(a) for a in cmd[1:]])
+        target = 'cmd.exe /d /s /c "' + line + '"'
+    else:
+        target = [exe] + cmd[1:]
+    try:
+        proc = subprocess.Popen(target, env=env)
+    except OSError as e:
+        print(f"MCP Creds: could not start {cmd[0]}: {e}", file=sys.stderr)
+        return 127
+    try:
+        import ctypes
+        from ctypes import wintypes
+        k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+        job = k32.CreateJobObjectW(None, None)
+
+        class LIMITS(ctypes.Structure):
+            _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64),
+                        ("LimitFlags", wintypes.DWORD), ("MinimumWorkingSetSize", ctypes.c_size_t),
+                        ("MaximumWorkingSetSize", ctypes.c_size_t), ("ActiveProcessLimit", wintypes.DWORD),
+                        ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD),
+                        ("SchedulingClass", wintypes.DWORD)]
+
+        class IO(ctypes.Structure):
+            _fields_ = [(n, ctypes.c_uint64) for n in ("r", "w", "o", "rb", "wb", "ob")]
+
+        class EXT(ctypes.Structure):
+            _fields_ = [("Basic", LIMITS), ("Io", IO), ("ProcessMemoryLimit", ctypes.c_size_t),
+                        ("JobMemoryLimit", ctypes.c_size_t), ("PeakProcessMemoryUsed", ctypes.c_size_t),
+                        ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+        info = EXT()
+        info.Basic.LimitFlags = 0x2000  # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+        k32.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info))
+        k32.AssignProcessToJobObject(job, wintypes.HANDLE(int(proc._handle)))
+    except Exception:
+        pass  # best effort: the server still runs, it just may outlive us
+    try:
+        return proc.wait()
+    except KeyboardInterrupt:
+        proc.terminate()
+        return 130
+
+
+# ---------------------------------------------------------------- one-click connect for AI apps
+
+SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASSW|(^|_)PAT($|_)|AUTH|CREDENTIAL|COOKIE|DSN|DATABASE_URL|CONN_?STR", re.I)
+SECRET_PREFIX = re.compile(r"^(sk-|sk_|rk_|ghp_|gho_|ghu_|ghs_|github_pat_|glpat-|xox[bpae]-|ntn_|secret_|AKIA|ASIA|AIza|hf_|gsk_|"
+                           r"pplx-|lin_api_|figd_|sbp_|ATATT|BSA|postgres(ql)?://|mysql://|mongodb(\+srv)?://|rediss?://)")
+PLACEHOLDER_RE = re.compile(r"^(<.*>|\$\{.*\}|\{\{.*\}\}|your[_ -].*|xxx+|changeme|\.\.\.|)$", re.I)
+
+
+def cmd_prefix() -> list:
+    """How AI apps should launch this program."""
+    if FROZEN:
+        return [sys.executable]
+    return [sys.executable or "python3", str(Path(__file__).resolve())]
+
+
+def location_warning() -> str:
+    if FROZEN and sys.platform == "darwin" and not sys.executable.startswith("/Applications/"):
+        return "Move MCP Creds into your Applications folder first. AI apps remember where it lives, so moving it later breaks them."
+    where = " ".join(cmd_prefix()).replace("\\", "/")
+    if any(t in where for t in ("/.cache/", "/tmp/", "/Temp/", "/private/var/folders/", "/Downloads/", "/archive-v0/")):
+        return "MCP Creds is running from a temporary or Downloads folder. Move it somewhere permanent before connecting, or your AI apps will lose it."
+    return ""
+
+
+def apps_catalog() -> list:
+    base = Path(os.environ.get("MCPCREDS_APPS_HOME") or Path.home())
+    if sys.platform == "darwin":
+        sup = base / "Library" / "Application Support"
+    elif os.name == "nt":
+        sup = Path(os.environ["APPDATA"]) if os.environ.get("APPDATA") and not os.environ.get("MCPCREDS_APPS_HOME") \
+            else base / "AppData" / "Roaming"
+    else:
+        sup = base / ".config"
+    return [
+        {"id": "claude", "label": "Claude Desktop", "path": sup / "Claude" / "claude_desktop_config.json",
+         "marker": sup / "Claude", "key": "mcpServers"},
+        {"id": "claude-code", "label": "Claude Code", "path": base / ".claude.json",
+         "marker": base / ".claude", "key": "mcpServers"},
+        {"id": "cursor", "label": "Cursor", "path": base / ".cursor" / "mcp.json",
+         "marker": base / ".cursor", "key": "mcpServers"},
+        {"id": "windsurf", "label": "Windsurf", "path": base / ".codeium" / "windsurf" / "mcp_config.json",
+         "marker": base / ".codeium" / "windsurf", "key": "mcpServers"},
+        {"id": "vscode", "label": "VS Code", "path": sup / "Code" / "User" / "mcp.json",
+         "marker": sup / "Code" / "User", "key": "servers", "vscode": True},
+    ]
+
+
+def backups_dir() -> Path:
+    return home() / "backups"
+
+
+def _backup(app_id: str, p: Path) -> None:
+    """Keep the untouched original forever plus the version before the latest write.
+    They can hold tokens, so they live in ~/.mcpcreds (0700), never next to the config."""
+    if not p.exists():
+        return
+    d = backups_dir()
+    d.mkdir(parents=True, exist_ok=True)
+    for path in (d, home()):
+        try:
+            os.chmod(path, 0o700)
+        except OSError:
+            pass
+    targets = [d / f"{app_id}-previous.json"]
+    if not (d / f"{app_id}-original.json").exists():
+        targets.append(d / f"{app_id}-original.json")
+    for t in targets:
+        shutil.copyfile(p, t)
+        os.chmod(t, 0o600)
+
+
+def _read_cfg(p: Path):
+    """Return (data, fingerprint). The fingerprint lets us refuse to write if the app changed the file meanwhile."""
+    p = p.resolve() if p.is_symlink() else p
+    if not p.exists():
+        return {}, None
+    st = os.stat(p)
+    text = p.read_text("utf-8").strip()
+    fp = (st.st_mtime_ns, st.st_size)
+    if not text:
+        return {}, fp
+    try:
+        data = json.loads(text)
+    except json.JSONDecodeError:
+        raise ValueError("This config has comments, so MCP Creds leaves it alone. Use the manual setup below.")
+    if not isinstance(data, dict):
+        raise ValueError("Unexpected config format, so MCP Creds leaves it alone.")
+    return data, fp
+
+
+class ConfigChanged(Exception):
+    pass
+
+
+def _write_cfg(app_id: str, p: Path, data: dict, fp) -> None:
+    p = p.resolve() if p.is_symlink() else p  # keep dotfile symlinks intact
+    p.parent.mkdir(parents=True, exist_ok=True)
+    now = (os.stat(p).st_mtime_ns, os.stat(p).st_size) if p.exists() else None
+    if now != fp:
+        raise ConfigChanged()
+    _backup(app_id, p)
+    fd, tmp = tempfile.mkstemp(dir=p.parent, prefix="." + p.name + ".", suffix=".tmp")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+        f.write("\n")
+    if p.exists():
+        try:
+            os.chmod(tmp, os.stat(p).st_mode & 0o777)
+        except OSError:
+            pass
+    os.replace(tmp, p)
+
+
+def _servers(data: dict, app: dict) -> dict:
+    servers = data.get(app["key"])
+    if servers is None:
+        return {}
+    if not isinstance(servers, dict):
+        raise ValueError(f"'{app['key']}' in this config is not an object, so MCP Creds leaves it alone.")
+    return servers
+
+
+def _our_entry(app: dict) -> dict:
+    pre = cmd_prefix()
+    e = {"command": pre[0], "args": pre[1:] + ["mcp"]}
+    return {"type": "stdio", **e} if app.get("vscode") else e
+
+
+def _points_to_us(cfg: dict) -> bool:
+    cmd, args = str(cfg.get("command") or ""), [str(a) for a in (cfg.get("args") or [])]
+    return cmd == cmd_prefix()[0] or "MCP Creds" in cmd or any(a.endswith("mcpcreds.py") for a in args)
+
+
+def _is_wrapped(cfg: dict) -> bool:
+    args = cfg.get("args") or []
+    return isinstance(cfg, dict) and "run" in args and "--" in args and _points_to_us(cfg)
+
+
+def _inline_secrets(servers: dict) -> list:
+    found = []
+    for srv, cfg in (servers or {}).items():
+        if srv == "mcp-creds" or not isinstance(cfg, dict) or not cfg.get("command") or _is_wrapped(cfg):
+            continue
+        env = cfg.get("env")
+        if not isinstance(env, dict):
+            continue
+        for k, v in env.items():
+            if not isinstance(v, str) or "${" in v or "{{" in v or PLACEHOLDER_RE.match(v.strip()) or not ENV_RE.match(k):
+                continue
+            if SECRET_NAME.search(k) or SECRET_PREFIX.match(v):
+                found.append({"server": srv, "env": k, "value": v})
+    return found
+
+
+def app_status(app: dict) -> dict:
+    p = app["path"]
+    out = {"id": app["id"], "label": app["label"], "path": str(p),
+           "installed": app["marker"].exists() or p.exists(), "connected": False, "stale": False,
+           "secrets": [], "wrapped": 0, "error": "", "undo": False}
+    if not out["installed"]:
+        return out
+    try:
+        servers = _servers(_read_cfg(p)[0], app)
+        mine = servers.get("mcp-creds")
+        if isinstance(mine, dict):
+            want = _our_entry(app)
+            out["connected"] = mine.get("command") == want["command"] and mine.get("args") == want["args"]
+            out["stale"] = not out["connected"]
+        out["wrapped"] = sum(1 for c in servers.values() if isinstance(c, dict) and _is_wrapped(c))
+        out["secrets"] = [{"server": x["server"], "env": x["env"]} for x in _inline_secrets(servers)]
+        out["undo"] = bool(mine) or out["wrapped"] > 0
+    except Exception as e:  # one odd config must never break the whole list
+        out["error"] = str(e) or e.__class__.__name__
+    return out
+
+
+def apps_overview() -> dict:
+    return {"apps": [app_status(a) for a in apps_catalog()], "warning": location_warning()}
+
+
+def _slug(s: str) -> str:
+    return re.sub(r"[^A-Za-z0-9]+", "_", s).strip("_").upper()[:40] or "SERVER"
+
+
+def _free_name(items: dict, base: str, value: str, hints: list) -> str:
+    """A store name for `value`: reuse one that already holds it, else find one that is free."""
+    cands = [base] + [f"{base[:80]}__{h}" for h in hints]
+    for c in cands:
+        if c in items and items[c]["value"] == value:
+            return c
+    for c in cands:
+        if c not in items:
+            return c
+    n = 2
+    while f"{cands[-1][:120]}_{n}" in items and items[f"{cands[-1][:120]}_{n}"]["value"] != value:
+        n += 1
+    return f"{cands[-1][:120]}_{n}"
+
+
+def _find_app(app_id: str) -> dict:
+    app = next((a for a in apps_catalog() if a["id"] == app_id), None)
+    if not app:
+        raise ValueError(f"Unknown app {app_id}")
+    return app
+
+
+def _with_retry(fn):
+    for attempt in range(3):
+        try:
+            return fn()
+        except ConfigChanged:
+            time.sleep(0.2)
+    raise ValueError("The app kept changing its config file. Close it and try again.")
+
+
+def connect_app(app_id: str, secure: bool = False) -> dict:
+    """Add MCP Creds to one app. With secure=True also move inline tokens into the store and wrap
+    each server with `run`, so its config holds no secrets."""
+    app = _find_app(app_id)
+
+    def attempt():
+        data, fp = _read_cfg(app["path"])
+        servers = _servers(data, app)
+        servers["mcp-creds"] = _our_entry(app)
+        moved = 0
+        if secure:
+            pre = cmd_prefix()
+            found = _inline_secrets(servers)
+            with locked():
+                items = load()
+                new_items = dict(items)
+                for srv in sorted({f["server"] for f in found}):
+                    cfg = servers[srv]
+                    env = dict(cfg.get("env") or {})
+                    flags = []
+                    for f in (x for x in found if x["server"] == srv):
+                        k, v = f["env"], f["value"]
+                        key = _free_name(new_items, k, v, [_slug(srv), f"{_slug(app_id)}_{_slug(srv)}"])
+                        if key not in new_items:
+                            new_items[key] = {"value": v, "note": f"{app['label']}: {srv}",
+                                              "created": _now(), "updated": _now()}
+                        flags += ["-e", k if key == k else f"{k}={key}"]
+                        env.pop(k, None)
+                        moved += 1
+                    new = {kk: vv for kk, vv in cfg.items() if kk not in ("command", "args", "env")}
+                    new["command"] = pre[0]
+                    new["args"] = pre[1:] + ["run"] + flags + ["--", cfg["command"]] + list(cfg.get("args") or [])
+                    if env:
+                        new["env"] = env
+                    servers[srv] = new
+                if new_items != items:
+                    save(new_items)  # tokens are safe in the store before the config loses them
+        data[app["key"]] = servers
+        _write_cfg(app_id, app["path"], data, fp)
+        return {"id": app_id, "ok": True, "moved": moved}
+
+    return _with_retry(attempt)
+
+
+def _unwrap(cfg: dict, items: dict) -> dict:
+    args = [str(a) for a in cfg.get("args") or []]
+    i = args.index("run")
+    j = args.index("--", i)
+    flags, orig = args[i + 1:j], args[j + 1:]
+    env = dict(cfg.get("env") or {})
+    k = 0
+    while k < len(flags):
+        if flags[k] in ("-e", "--env") and k + 1 < len(flags):
+            var, _, key = flags[k + 1].partition("=")
+            key = key or var
+            if key in items:
+                env[var] = items[key]["value"]
+            k += 2
+        else:
+            k += 1
+    new = {kk: vv for kk, vv in cfg.items() if kk not in ("command", "args", "env")}
+    new["command"] = orig[0] if orig else cfg.get("command")
+    if orig[1:]:
+        new["args"] = orig[1:]
+    if env:
+        new["env"] = env
+    return new
+
+
+def undo_app(app_id: str) -> bool:
+    """Disconnect: remove only what MCP Creds added. Wrapped servers get their original command
+    back with their tokens restored from the store. Everything else in the file is untouched."""
+    app = _find_app(app_id)
+    if not app["path"].exists():
+        return False
+
+    def attempt():
+        data, fp = _read_cfg(app["path"])
+        servers = _servers(data, app)
+        changed = servers.pop("mcp-creds", None) is not None
+        items = load()
+        for name, cfg in list(servers.items()):
+            if isinstance(cfg, dict) and _is_wrapped(cfg):
+                servers[name] = _unwrap(cfg, items)
+                changed = True
+        if not changed:
+            return False
+        data[app["key"]] = servers
+        _write_cfg(app_id, app["path"], data, fp)
+        return True
+
+    return _with_retry(attempt)
+
+
 # ---------------------------------------------------------------- local web UI
 
 def mcp_config_snippet() -> dict:
-    if FROZEN:
-        entry = {"command": sys.executable, "args": ["mcp"]}
-    else:
-        entry = {"command": sys.executable or "python3", "args": [str(Path(__file__).resolve()), "mcp"]}
-    return {"mcpServers": {"mcp-creds": entry}}
+    pre = cmd_prefix()
+    return {"mcpServers": {"mcp-creds": {"command": pre[0], "args": pre[1:] + ["mcp"]}}}
 
 
 def make_server(port: int = 7878, token: str = None):
@@ -342,6 +780,10 @@ def make_server(port: int = 7878, token: str = None):
                         .replace("__VERSION__", VERSION)
                         .replace("__CONFIG__", cfg))
                 return self._send(200, html.encode(), "text/html; charset=utf-8")
+            if self.path == "/api/apps":
+                if self._authed():
+                    self._send(200, apps_overview())
+                return
             if self.path == "/api/items":
                 if self._authed():
                     try:
@@ -352,12 +794,23 @@ def make_server(port: int = 7878, token: str = None):
             self._send(404, {"error": "not found"})
 
         def do_POST(self):
-            if self.path not in ("/api/items", "/api/import"):
+            if self.path not in ("/api/items", "/api/import", "/api/apps/connect", "/api/apps/undo"):
                 return self._send(404, {"error": "not found"})
             if not self._authed():
                 return
             try:
                 b = self._body()
+                if self.path == "/api/apps/connect":
+                    results = []
+                    for app_id in b.get("ids") or []:
+                        try:
+                            results.append(connect_app(str(app_id), bool(b.get("secure"))))
+                        except (ValueError, OSError) as e:
+                            results.append({"id": app_id, "ok": False, "error": str(e)})
+                    return self._send(200, {"results": results, **apps_overview()})
+                if self.path == "/api/apps/undo":
+                    ok = undo_app(str(b.get("id", "")))
+                    return self._send(200 if ok else 404, {"ok": ok, **apps_overview()})
                 if self.path == "/api/import":
                     n = import_items(b.get("items", []))
                     return self._send(200, {"ok": True, "count": n})
@@ -463,6 +916,17 @@ def main(argv=None) -> int:
                    native="--browser" not in argv and "--no-open" not in argv)
         elif cmd == "mcp":
             serve_mcp()
+        elif cmd == "run":
+            return run_with_keys(argv)
+        elif cmd == "connect":
+            secure = "--secure" in argv
+            ids = [a for a in argv if not a.startswith("--")] or [a["id"] for a in apps_overview()["apps"] if a["installed"]]
+            for app_id in ids:
+                try:
+                    r = connect_app(app_id, secure)
+                    print(f"Connected {app_id}" + (f", moved {r['moved']} keys" if r["moved"] else ""))
+                except (ValueError, OSError) as e:
+                    print(f"Skipped {app_id}: {e}", file=sys.stderr)
         elif cmd == "set":
             note = ""
             if "--note" in argv:
