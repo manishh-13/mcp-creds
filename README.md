@@ -111,11 +111,11 @@ Most MCP servers (GitHub, Slack, Notion, Brave Search...) read their token from 
 
 ```bash
 python3 mcpcreds.py set GITHUB_TOKEN ghp_xxx --note "GitHub MCP"
-python3 mcpcreds.py get GITHUB_TOKEN        # prints the value, handy in $(...)
+python3 mcpcreds.py get GITHUB_TOKEN        # print one value
 python3 mcpcreds.py list
 python3 mcpcreds.py rm GITHUB_TOKEN
 python3 mcpcreds.py export > backup.json
-python3 mcpcreds.py connect --secure        # connect every detected AI app and move their tokens
+python3 mcpcreds.py connect --secure        # connect all AI apps, move their tokens
 python3 mcpcreds.py run -e GH=GITHUB_TOKEN -- some-mcp-server
 ```
 
