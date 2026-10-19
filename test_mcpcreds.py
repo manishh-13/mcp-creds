@@ -2,6 +2,7 @@ import io
 import json
 import os
 import stat
+import sys
 import tempfile
 import threading
 import unittest
@@ -42,7 +43,10 @@ class StoreTests(Base):
                 mc.set_item(bad, "v")
         with self.assertRaises(ValueError):
             mc.set_item("OK", "")
+        with self.assertRaises(ValueError):
+            mc.set_item("OK", 123)
 
+    @unittest.skipIf(sys.platform == "win32", "POSIX permissions only")
     def test_file_permissions(self):
         mc.set_item("K", "v")
         mode = stat.S_IMODE(os.stat(mc.store_path()).st_mode)
@@ -76,6 +80,20 @@ class McpTests(Base):
     def test_unknown(self):
         self.assertEqual(self.rpc("nope")["error"]["code"], -32601)
         self.assertEqual(self.rpc("tools/call", {"name": "x"})["error"]["code"], -32602)
+
+    def test_bad_input_never_crashes(self):
+        lines = "\n".join(["[1,2]", json.dumps({"jsonrpc": "2.0", "id": 7, "method": "tools/call",
+                            "params": {"name": "get_credential", "arguments": {"name": 5}}}),
+                            json.dumps({"jsonrpc": "2.0", "id": 8, "method": "tools/call",
+                            "params": {"name": "get_credential", "arguments": "oops"}}),
+                            json.dumps({"jsonrpc": "2.0", "id": 9, "method": "ping"})]) + "\n"
+        out = io.StringIO()
+        mc.serve_mcp(io.StringIO(lines), out)
+        resps = [json.loads(l) for l in out.getvalue().splitlines()]
+        self.assertEqual(resps[0]["error"]["code"], -32600)
+        self.assertTrue(resps[1]["result"]["isError"])
+        self.assertTrue(resps[2]["result"]["isError"])
+        self.assertEqual(resps[3], {"jsonrpc": "2.0", "id": 9, "result": {}})
 
     def test_stdio_loop(self):
         lines = "\n".join([
@@ -118,6 +136,17 @@ class HttpTests(Base):
             with e:
                 return e.code, e.read()
 
+    def test_anti_framing_headers(self):
+        with urllib.request.urlopen(self.base + "/") as r:
+            self.assertEqual(r.headers["X-Frame-Options"], "DENY")
+
+    def test_concurrent_writes_not_lost(self):
+        def w(i):
+            mc.set_item(f"K{i}", str(i))
+        ts = [threading.Thread(target=w, args=(i,)) for i in range(25)]
+        [t.start() for t in ts]; [t.join() for t in ts]
+        self.assertEqual(len(mc.load()), 25)
+
     def test_page_served_with_token(self):
         code, body = self.req("GET", "/", token=None)
         self.assertEqual(code, 200)
@@ -131,6 +160,21 @@ class HttpTests(Base):
     def test_dns_rebinding_blocked(self):
         self.assertEqual(self.req("GET", "/", host="evil.example")[0], 403)
         self.assertEqual(self.req("GET", "/api/items", host="evil.example")[0], 403)
+
+    def test_bulk_import(self):
+        code, body = self.req("POST", "/api/import", {"items": [
+            {"name": "A", "value": "1", "note": "x"}, {"name": "B", "value": "2"}]})
+        self.assertEqual((code, json.loads(body)["count"]), (200, 2))
+        self.assertEqual(sorted(mc.load()), ["A", "B"])
+        code, _ = self.req("POST", "/api/import", {"items": [{"name": "C", "value": "3"}, {"name": "bad name", "value": "4"}]})
+        self.assertEqual(code, 400)
+        self.assertNotIn("C", mc.load())
+
+    def test_page_placeholders_filled(self):
+        _, body = self.req("GET", "/", token=None)
+        for ph in (b"__STORE__", b"__CONFIG__", b"__VERSION__", b"__TOKEN__"):
+            self.assertNotIn(ph, body)
+        self.assertIn(b'"mcp-creds"', body)
 
     def test_crud(self):
         self.assertEqual(self.req("POST", "/api/items", {"name": "A.B-c_1", "value": "v", "note": "n"})[0], 200)

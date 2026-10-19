@@ -1,0 +1,58 @@
+name: release
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.12" }
+      - run: python -m unittest -v
+  build:
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: macos-14, asset: "dist/MCP-Creds-macOS.zip", bin: "dist/MCP Creds.app/Contents/MacOS/MCP Creds" }
+          - { os: windows-latest, asset: "dist/MCP-Creds-Windows.zip", bin: "dist/MCP Creds/MCP Creds.exe" }
+          - { os: ubuntu-latest, asset: "dist/MCP-Creds-Linux.tar.gz", bin: "dist/MCP Creds/MCP Creds" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Build
+        shell: bash
+        run: ./packaging/build.sh
+      - name: Smoke test MCP over stdio from the built app
+        shell: bash
+        env:
+          MCPCREDS_HOME: ${{ runner.temp }}/mcpcreds-smoke
+        run: |
+          "${{ matrix.bin }}" set SMOKE_KEY ok
+          out=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}' \
+            '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_credential","arguments":{"name":"SMOKE_KEY"}}}' \
+            | "${{ matrix.bin }}" mcp)
+          echo "$out"
+          echo "$out" | grep -q '"mcp-creds"'
+          echo "$out" | grep -q '"text": "ok"'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os }}
+          path: ${{ matrix.asset }}
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: assets, merge-multiple: true }
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: assets/*
+          generate_release_notes: true

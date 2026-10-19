@@ -5,21 +5,38 @@ One local place for every API key, token and parameter your AI desktop apps need
 You use Claude Desktop, Cursor, VS Code, Windsurf... and every new MCP server wants its own token pasted into its own config. MCP Creds ends that: save each key once in a clean little app, connect MCP Creds to your AI apps once, and the AI fetches what it needs from here.
 
 - **Local only.** No cloud, no account, no login, no telemetry. One JSON file on your machine.
-- **Zero dependencies.** A single Python file (3.8+) plus one HTML page. Download and run.
+- **Zero dependencies.** A single Python file (3.9+) plus one HTML page. Download and run.
 - **Works with any MCP client.** Two tools: `list_credentials` (names only) and `get_credential`.
 
-## Quick start
+## Get it
+
+**Download the app** (no Python needed): grab the file for your OS from the [Releases](../../releases) page.
+
+| OS | File | First launch |
+|---|---|---|
+| macOS (Apple silicon) | `MCP-Creds-macOS.zip` | Unzip, drag to Applications. The app is not notarized yet, so right-click it and choose **Open** the first time. |
+| Windows | `MCP-Creds-Windows.zip` | Unzip, run `MCP Creds.exe`. If SmartScreen warns, choose **More info, Run anyway**. |
+| Linux | `MCP-Creds-Linux.tar.gz` | Extract, run `./MCP Creds`. Opens in your browser. |
+
+**Or run from source** (any OS with Python 3.9+, zero dependencies):
 
 ```bash
-git clone https://github.com/<you>/mcp-creds && cd mcp-creds
+git clone https://github.com/manishh-13/mcp-creds && cd mcp-creds
 python3 mcpcreds.py ui
 ```
 
-Your browser opens the app. Add a key (tip: paste `NAME=value` into the name box and it splits itself), copy it, edit it, export everything as JSON.
+It opens in your browser. Install `pywebview` (`pip install pywebview`) and it opens in its own native window instead.
+
+## What it does
+
+- **Paste anything.** Copy a token, press Cmd/Ctrl+V anywhere on the page. It recognises 20+ services by the key's prefix (GitHub, OpenAI, Anthropic, Slack, Notion, AWS, Stripe, Hugging Face...) and names the key for you.
+- **Bring your existing setup.** Paste or drop a `.env`, a JSON file, or your `claude_desktop_config.json`: it pulls every `env` value out of your `mcpServers` and lets you pick which ones to import. Placeholders like `<your-key>` are skipped.
+- **Copy, reveal, edit, delete,** search by name, note or service, export everything as JSON.
+- **Keyboard first:** `N` new key, `Cmd/Ctrl+K` search, `Enter` save, `Esc` close.
 
 ## Connect your AI apps
 
-Run `python3 mcpcreds.py config` (or open "Connect your AI apps" in the UI) and paste the result into your app's MCP config:
+Click **Connect AI** in the app: it shows the exact snippet for Claude Desktop, Cursor, Claude Code and VS Code, with the right path already filled in, and a copy button. (From a terminal: `python3 mcpcreds.py config`.) It looks like this:
 
 ```json
 {
@@ -61,11 +78,14 @@ Use it inside other MCP configs or scripts: `export GITHUB_TOKEN=$(python3 mcpcr
 
 The web UI listens on `127.0.0.1` only, rejects requests whose `Host` is not localhost (blocks DNS rebinding), and requires a random per-session token on every API call (blocks other websites from reading your keys).
 
-## Tests
+## Tests and builds
 
 ```bash
-python3 -m unittest -v
+python3 -m unittest -v          # 16 tests, stdlib only
+./packaging/build.sh            # builds the desktop app for your OS into dist/ (needs uv)
 ```
+
+Pushing a `v*` tag builds macOS, Windows and Linux apps in GitHub Actions and attaches them to the release.
 
 ## License
 
