@@ -189,7 +189,12 @@ TOOLS = [
     },
     {
         "name": "get_credential",
-        "description": "Get the value of one saved credential by its exact name, for example GITHUB_TOKEN.",
+        "description": (
+            "Get the value of one saved credential by its exact name, for example GITHUB_TOKEN. "
+            "Some credentials have several parts saved together as labelled lines (for example "
+            "aws_access_key_id, aws_secret_access_key and aws_session_token in one AWS_CREDENTIALS "
+            "entry). Read each line and use every part the task needs."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {"name": {"type": "string", "description": "Exact credential name"}},
@@ -208,7 +213,10 @@ def call_tool(name: str, args: dict) -> dict:
     if name == "list_credentials":
         if not items:
             return _text("No credentials saved yet. Ask the user to add them in the MCP Creds app.")
-        lines = [f"- {k}" + (f": {v.get('note')}" if v.get("note") else "") for k, v in sorted(items.items())]
+        def parts(v):
+            n = len([x for x in v.get("value", "").splitlines() if x.strip() and not re.match(r"^\s*(\[.*\]|#.*)$", x)])
+            return f" ({n} parts)" if n > 1 else ""
+        lines = [f"- {k}{parts(v)}" + (f": {v.get('note')}" if v.get("note") else "") for k, v in sorted(items.items())]
         return _text("Saved credentials:\n" + "\n".join(lines))
     if name == "get_credential":
         key = str((args if isinstance(args, dict) else {}).get("name", "") or "")
@@ -309,6 +317,21 @@ def augmented_path(path: str) -> str:
     return os.pathsep.join(parts)
 
 
+PART_RE = re.compile(r"^\s*(?:export\s+)?([A-Za-z0-9_.\-]+)\s*[=:]\s*(.*?)\s*$")
+
+
+def value_part(value: str, var: str) -> str:
+    """A multi-part credential (several NAME=value lines saved as one key) can feed one env var:
+    pick the line whose name matches `var`, ignoring case. Single values pass through unchanged."""
+    if "\n" not in value.strip():
+        return value
+    for line in value.splitlines():
+        m = PART_RE.match(line)
+        if m and m.group(1).lower() == var.lower():
+            return m.group(2).strip("\"'")
+    return value
+
+
 def run_with_keys(argv: list) -> int:
     """mcpcreds run -e VAR[=KEY] ... [--all] -- command args...
 
@@ -351,7 +374,7 @@ def run_with_keys(argv: list) -> int:
             else:
                 env.pop(var, None)
     for var, key in pairs:
-        env[var] = items[key]["value"]
+        env[var] = value_part(items[key]["value"], var)
     env["PATH"] = augmented_path(env.get("PATH", ""))
     exe = shutil.which(cmd[0], path=env["PATH"]) or cmd[0]
     if os.name == "posix":

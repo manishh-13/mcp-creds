@@ -31,6 +31,7 @@ It opens in your browser. Install `pywebview` (`pip install pywebview`) and it o
 
 - **Paste anything.** Copy a token, press Cmd/Ctrl+V anywhere on the page. It recognises 20+ services by the key's prefix (GitHub, OpenAI, Anthropic, Slack, Notion, AWS, Stripe, Hugging Face...) and names the key for you.
 - **Bring your existing setup.** Paste or drop a `.env`, a JSON file, or your `claude_desktop_config.json`: it pulls every `env` value out of your `mcpServers` and lets you pick which ones to import. Placeholders like `<your-key>` are skipped.
+- **Credentials with several parts** (an AWS access key, secret and session token): paste them all into one key, one per line. The card shows how many parts it holds, the AI is told to read every line, and `run -e AWS_SECRET_ACCESS_KEY=AWS_CREDENTIALS` hands each server just the part it needs. Or split them into separate keys with one click.
 - **Copy, reveal, edit, delete,** search by name, note or service, export everything as JSON.
 - **Keyboard first:** `N` new key, `Cmd/Ctrl+K` search, `Enter` save, `Esc` close.
 

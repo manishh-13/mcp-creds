@@ -73,6 +73,8 @@ class McpTests(Base):
         mc.set_item("OPENAI_KEY", "sk-1", "openai")
         listed = self.rpc("tools/call", {"name": "list_credentials"})["result"]
         self.assertIn("OPENAI_KEY: openai", listed["content"][0]["text"])
+        mc.set_item("AWS_CREDENTIALS", "AWS_ACCESS_KEY_ID=A\nAWS_SECRET_ACCESS_KEY=B")
+        self.assertIn("AWS_CREDENTIALS (2 parts)", self.rpc("tools/call", {"name": "list_credentials"})["result"]["content"][0]["text"])
         self.assertNotIn("sk-1", listed["content"][0]["text"])
         got = self.rpc("tools/call", {"name": "get_credential", "arguments": {"name": "openai_key"}})["result"]
         self.assertEqual(got["content"][0]["text"], "sk-1")
@@ -381,6 +383,13 @@ class RunTests(Base):
                             "import sys,os; sys.stdout.write(sys.stdin.read().upper()+os.environ['K'])"],
                            input="hello", capture_output=True, text=True)
         self.assertEqual(r.stdout, "HELLOv")
+
+    def test_multi_part_key_feeds_each_var(self):
+        mc.set_item("AWS_CREDENTIALS", "[default]\naws_access_key_id = AKIAEXAMPLE\naws_secret_access_key = s3cr3t/abc\n")
+        r = self.run_cli("-e", "AWS_ACCESS_KEY_ID=AWS_CREDENTIALS", "-e", "AWS_SECRET_ACCESS_KEY=AWS_CREDENTIALS", "--",
+                         sys.executable, "-c", "import os,sys; sys.stdout.write(os.environ['AWS_ACCESS_KEY_ID']+'|'+os.environ['AWS_SECRET_ACCESS_KEY'])")
+        self.assertEqual(r.stdout, "AKIAEXAMPLE|s3cr3t/abc")
+        self.assertEqual(mc.value_part("single", "X"), "single")
 
     def test_missing_key_explains(self):
         r = self.run_cli("-e", "NOPE", "--", sys.executable, "-c", "pass")
