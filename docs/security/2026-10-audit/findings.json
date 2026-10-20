@@ -1,0 +1,173 @@
+[
+ {
+  "verdict": "needs_validation",
+  "fingerprint": "mcpcreds.py/make_server/root-page-discloses-session-token",
+  "title": "Unauthenticated GET / gives the API session token to any local OS user, who can then read and change every saved key",
+  "description": "While `mcpcreds.py ui` is running, the UI server listens on a TCP socket at 127.0.0.1 (port 7878, or a random port if 7878 is taken). Every account on the machine can reach that socket. For GET / and /index.html the server checks only that the Host header is 127.0.0.1 or localhost. It then returns ui.html with the live per-session API token substituted into `const T = \"__TOKEN__\"`. A client that is not a browser (curl, or a script run by another OS user) sets the Host header freely. So another local user can fetch the page, take the token, and call GET /api/items, which returns load(), the full store including secret values. With the same token, that user can also POST /api/items or /api/import to overwrite values, DELETE /api/items/<name> to remove keys, and POST /api/apps/connect or /api/apps/undo to rewrite the victim's AI app config files. SECURITY.md line 13 puts 'another user on the machine ... read or change saved keys' in scope. The store's 0700/0600 permissions exist to keep out exactly this principal. The README (line 130) says the token blocks only 'other websites'. It works against cross-origin browser pages, which cannot read the GET / response, but it does not authenticate the local peer. The exposure lasts only while the UI server process runs.",
+  "claimed_root_cause": "make_server hands out the bearer token that guards /api/* without any authentication: GET / gives it to any loopback peer that sends a localhost Host header. The server does no OS-level peer authentication. There is no peer UID check, no user-private channel such as a 0600 Unix socket, and no out-of-band or one-time handoff of the token to the window or browser it opens (main passes a plain url to webview.create_window / webbrowser.open). So the only thing separating the victim user from other local users is the Host header, which a non-browser client controls.",
+  "trace": [
+   {
+    "kind": "entrypoint",
+    "file": "mcpcreds.py",
+    "line": 872,
+    "scope": "make_server",
+    "description": "ThreadingHTTPServer binds 127.0.0.1:port. Any local account can connect to this loopback TCP socket, and there is no peer-credential check."
+   },
+   {
+    "kind": "propagation",
+    "file": "mcpcreds.py",
+    "line": 807,
+    "scope": "Handler.do_GET",
+    "description": "The path / or /index.html is served after only _host_ok(), not _authed()."
+   },
+   {
+    "kind": "propagation",
+    "file": "mcpcreds.py",
+    "line": 791,
+    "scope": "Handler._host_ok",
+    "description": "The only gate is Host in ('127.0.0.1','localhost'). The client controls this header, so it is not peer authentication."
+   },
+   {
+    "kind": "propagation",
+    "file": "mcpcreds.py",
+    "line": 811,
+    "scope": "Handler.do_GET",
+    "description": "page.replace('__TOKEN__', token) puts the live session token into the response body."
+   },
+   {
+    "kind": "propagation",
+    "file": "mcpcreds.py",
+    "line": 797,
+    "scope": "Handler._authed",
+    "description": "compare_digest accepts the leaked token, so the other user passes API auth."
+   },
+   {
+    "kind": "sink",
+    "file": "mcpcreds.py",
+    "line": 823,
+    "scope": "Handler.do_GET /api/items",
+    "description": "Returns {'items': load()}, every saved secret value, to the other local user."
+   }
+  ],
+  "evidence": [
+   {
+    "file": "mcpcreds.py",
+    "line": 769,
+    "description": "One token per server process (secrets.token_urlsafe(24)), used for every request."
+   },
+   {
+    "file": "mcpcreds.py",
+    "line": 808,
+    "description": "GET / checks only _host_ok. No token or peer check happens before the page carrying the token is returned."
+   },
+   {
+    "file": "ui.html",
+    "line": 376,
+    "description": "const T = \"__TOKEN__\"; the token is in plain text in the served HTML."
+   },
+   {
+    "file": "ui.html",
+    "line": 438,
+    "description": "The UI sends this same token as X-Token on every API call, so holding the page means holding full API authority."
+   },
+   {
+    "file": "mcpcreds.py",
+    "line": 836,
+    "description": "With the token, POST /api/apps/connect calls connect_app, which rewrites the victim's AI app config files (and moves inline secrets into the store when secure=true)."
+   },
+   {
+    "file": "SECURITY.md",
+    "line": 13,
+    "description": "In scope: anything that lets another website, another user on the machine, or a process that should not have access read or change saved keys."
+   },
+   {
+    "file": "README.md",
+    "line": 130,
+    "description": "The README describes the token as blocking 'other websites' only. Nothing in make_server addresses other local users on the loopback API."
+   }
+  ],
+  "blockers": [
+   "Target code was not executed: this run's macOS sandbox cannot enforce a memory limit, so the cross-account loopback fetch has not been observed locally.",
+   "Whether a second OS account can reach the victim's 127.0.0.1 listener depends on the OS and on any host firewall or per-user network sandbox. Default loopback on macOS, Linux and Windows is shared by all local users, but this has not been observed here."
+  ],
+  "validation_plan": {
+   "local": "On a disposable VM with two OS accounts and only dummy keys: as user A, set MCPCREDS_HOME to a scratch directory, save one dummy key (`python3 mcpcreds.py set DUMMY dummyvalue`), then start `python3 mcpcreds.py ui` and note the port. As user B, run `curl -s -H 'Host: 127.0.0.1' http://127.0.0.1:<port>/ | grep -o 'const T = \"[^\"]*\"'`, then `curl -s -H 'Host: 127.0.0.1' -H 'X-Token: <tok>' http://127.0.0.1:<port>/api/items`. Vulnerable result: user B receives user A's dummy value. Use read-only requests only; do not call connect/undo/delete. Regression test: a GET / without a prior one-time launch nonce (or from a peer with a different UID) must not return a usable token.",
+   "deployment": "The owner checks on a multi-user macOS, Windows and Linux host that a connection from another account reaches the UI port. The owner then picks a fix: pass the token out-of-band (a one-time launch nonce in the URL given to webview/webbrowser, exchanged once and then invalidated), or on POSIX use a 0600 Unix socket or a peer-UID check."
+  }
+ },
+ {
+  "verdict": "rejected",
+  "fingerprint": "mcpcreds.py:_unwrap:full-store-value-written-to-config-env",
+  "title": "Disconnect writes the whole stored credential (all parts) into AI app config env, even for wrappers that never held an inline secret",
+  "description": "undo_app (mcpcreds.py:736) replaces every server that _is_wrapped matches with _unwrap(cfg, items) (line 750). For each -e VAR[=KEY] flag, _unwrap sets env[VAR] = items[key][\"value\"] (line 723), which is the full stored value. run_with_keys gives the child only value_part(items[key][\"value\"], var) (line 377; value_part at line 323). So when a wrapped flag points at a multi-part key, Disconnect writes every part into that one env var in the AI app config. _write_cfg copies the existing file mode onto the temp file (line 559) and then calls os.replace (line 562). Every line number and quoted snippet checks out against the source.",
+  "claimed_root_cause": "_unwrap rebuilds env from the raw stored value without applying value_part, and it does not limit itself to flags that connect_app created from inline secrets.",
+  "trace": [
+   {
+    "kind": "entrypoint",
+    "file": "mcpcreds.py",
+    "line": 736,
+    "scope": "undo_app",
+    "description": "Disconnect entry. It is reached only from the CLI or from POST /api/apps/undo (lines 830 and 844 to 845), which is gated by the Host check and the per-session X-Token. Both are actions of the local user who owns the store, not of a lower-trust principal."
+   },
+   {
+    "kind": "propagation",
+    "file": "mcpcreds.py",
+    "line": 750,
+    "scope": "undo_app",
+    "description": "Every entry that _is_wrapped matches is replaced by the output of _unwrap(cfg, items)."
+   },
+   {
+    "kind": "propagation",
+    "file": "mcpcreds.py",
+    "line": 723,
+    "scope": "_unwrap",
+    "description": "env[var] = items[key][\"value\"]: the full stored value, with no value_part call."
+   },
+   {
+    "kind": "sink",
+    "file": "mcpcreds.py",
+    "line": 562,
+    "scope": "_write_cfg",
+    "description": "os.replace writes the restored config. Line 559 keeps the file's existing mode; it never makes the mode broader."
+   }
+  ],
+  "evidence": [
+   {
+    "file": "mcpcreds.py",
+    "line": 377,
+    "description": "run_with_keys applies value_part per env var, so the child gets only the matching part."
+   },
+   {
+    "file": "mcpcreds.py",
+    "line": 323,
+    "description": "value_part picks the NAME=value line that matches var; a single value passes through unchanged."
+   },
+   {
+    "file": "mcpcreds.py",
+    "line": 845,
+    "description": "The only HTTP route to undo_app is behind the Host and token checks, so a website, an LLM or an MCP tool cannot trigger Disconnect. serve_mcp exposes only list_credentials and get_credential."
+   },
+   {
+    "file": "mcpcreds.py",
+    "line": 559,
+    "description": "_write_cfg sets the temp file to the original file's mode (st_mode & 0o777). Exposure is therefore bounded by the permissions the AI app chose for its own config, and that same file held the inline secrets before Connect."
+   },
+   {
+    "file": "mcpcreds.py",
+    "line": 739,
+    "description": "The undo_app docstring states the intended behavior: wrapped servers get their original command back with their tokens restored from the store. Writing tokens inline into the config is by design."
+   },
+   {
+    "file": "README.md",
+    "line": 76,
+    "description": "Documented contract: Disconnect puts everything back, meaning the inline-secret state from before Connect."
+   },
+   {
+    "file": "README.md",
+    "line": 66,
+    "description": "The part-selection promise covers `run` only. Missing it in _unwrap is a correctness defect: the restored server would get a wrong multi-line value."
+   }
+  ],
+  "reason": "This is not a security boundary crossing. (1) The first trace entry is not a lower-trust entrypoint. Only the authenticated local user can run Disconnect (CLI, or the token-gated POST /api/apps/undo at lines 844 to 845). No website, MCP client, LLM tool or other OS user can reach undo_app. (2) The sink writes into the user's own AI app config, and restoring tokens inline there is the documented intent (docstring at line 739, README line 76, the targeted-restore test at test_mcpcreds.py:294). For wrappers that connect_app created, each key holds exactly the single inline value it took (connect_app and _free_name), so the result matches the file's state before Connect. (3) _write_cfg never broadens permissions (line 559 keeps the existing mode). Any cross-user readability comes from the AI app's own config mode and the home-directory mode, which is the plaintext-under-file-permissions baseline the architecture accepts. (4) The extra-parts case needs the user to edit a key into a multi-part value after Connect, or to hand-write a wrapper and then choose Disconnect themselves. That is the user moving their own secret into their own file. The missing value_part call in _unwrap is a real functional and data-minimization bug: the restored server gets every line instead of the one part it needs. The fix is env[var] = value_part(items[key][\"value\"], var). It is not an exploitable vulnerability. Source alone settles this; target code was not executed."
+ }
+]

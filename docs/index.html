@@ -31,7 +31,7 @@
 {"@context":"https://schema.org","@graph":[
  {"@type":"SoftwareApplication","name":"MCP Creds","url":"https://manishh-13.github.io/mcp-creds/",
   "description":"A free, open source, local-only API key manager for AI apps. Save each key once; Claude Desktop, Claude Code, Cursor, VS Code and any MCP client fetch it through the Model Context Protocol.",
-  "applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Windows, Linux","softwareVersion":"0.1.0",
+  "applicationCategory":"DeveloperApplication","operatingSystem":"macOS, Windows, Linux","softwareVersion":"0.1.1",
   "license":"https://opensource.org/licenses/MIT","isAccessibleForFree":true,
   "offers":{"@type":"Offer","price":"0","priceCurrency":"USD"},
   "downloadUrl":"https://github.com/manishh-13/mcp-creds/releases/latest","codeRepository":"https://github.com/manishh-13/mcp-creds",
@@ -349,7 +349,8 @@ footer .fl{display:flex;gap:20px;flex-wrap:wrap}
       <div class="pane rv"><h3 style="margin-bottom:16px">What it does</h3>
         <ul class="list ok">
           <li><svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Keeps keys in <code>~/.mcpcreds/store.json</code>, readable only by your user (folder 0700, file 0600). Atomic writes.</span></li>
-          <li><svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>The app only listens on 127.0.0.1, checks the Host header and needs a random per-session token, so websites cannot read your keys.</span></li>
+          <li><svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>The app only listens on 127.0.0.1 and opens with a one-time link plus a session cookie, so neither websites nor other accounts on your computer can read your keys.</span></li>
+          <li><svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Independently audited with Cloudflare's security-audit method. <a href="https://github.com/manishh-13/mcp-creds/blob/main/docs/security/2026-10-audit/RESOLUTION.md" style="text-decoration:underline">Read the report</a>.</span></li>
           <li><svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Takes tokens out of your AI app configs, so they stop leaking into backups, screenshots and dotfile repos.</span></li>
           <li><svg class="i" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><span>Backs up every config before touching it, refuses configs with comments, and never overwrites the original backup.</span></li>
         </ul></div>

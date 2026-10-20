@@ -7,13 +7,15 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 PY="${PYTHON_VERSION:-3.12}"
-uv run -q --python "$PY" --with pillow python packaging/make_icon.py
+# Build tools are pinned so a release never silently picks up a new upstream version.
+PYINSTALLER="pyinstaller==6.22.3"; PYWEBVIEW="pywebview==6.2.1"; PILLOW="pillow==13.0.0"
+uv run -q --python "$PY" --with "$PILLOW" python packaging/make_icon.py
 ICON=packaging/icon.png
 case "$(uname -s)" in Darwin) ICON=packaging/icon.icns ;; MINGW*|MSYS*|CYGWIN*) ICON=packaging/icon.ico ;; esac
 SEP=":"; case "$(uname -s)" in MINGW*|MSYS*|CYGWIN*) SEP=";" ;; esac
 rm -rf build dist
 # Native window via pywebview on macOS/Windows. Linux opens in the browser (pywebview needs system GTK/Qt there).
-WITH="--with pyinstaller --with pywebview"; [ "$(uname -s)" = "Linux" ] && WITH="--with pyinstaller"
+WITH="--with $PYINSTALLER --with $PYWEBVIEW"; [ "$(uname -s)" = "Linux" ] && WITH="--with $PYINSTALLER"
 # shellcheck disable=SC2086
 uv run -q --python "$PY" $WITH pyinstaller \
   --noconfirm --clean --windowed --name "MCP Creds" \

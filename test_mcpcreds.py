@@ -1,5 +1,6 @@
 import io
 import json
+import http.client
 import subprocess
 from pathlib import Path
 import os
@@ -13,6 +14,17 @@ import urllib.request
 import urllib.error
 
 import mcpcreds as mc
+
+
+def login(srv):
+    """Exchange the one-time launch code for the session cookie, like the app window does."""
+    c = http.client.HTTPConnection("127.0.0.1", srv.server_address[1])
+    c.request("GET", "/?k=" + srv.launch_code)
+    resp = c.getresponse(); resp.read()
+    assert resp.status == 303, resp.status
+    cookie = resp.getheader("Set-Cookie").split(";")[0]
+    c.close()
+    return cookie
 
 
 class Base(unittest.TestCase):
@@ -82,6 +94,25 @@ class McpTests(Base):
         self.assertTrue(miss["isError"])
         self.assertIn("OPENAI_KEY", miss["content"][0]["text"])
 
+    def test_ambiguous_case_is_refused(self):
+        mc.set_item("Github_Token", "a"); mc.set_item("GITHUB_TOKEN", "b")
+        r = self.rpc("tools/call", {"name": "get_credential", "arguments": {"name": "github_token"}})["result"]
+        self.assertTrue(r["isError"])
+        self.assertIn("differ only in case", r["content"][0]["text"])
+        self.assertNotIn(r["content"][0]["text"].strip(), ("a", "b"))
+        r = self.rpc("tools/call", {"name": "get_credential", "arguments": {"name": "GITHUB_TOKEN"}})["result"]
+        self.assertEqual(r["content"][0]["text"], "b")
+
+    def test_internal_error_is_generic(self):
+        orig = mc.call_tool
+        mc.call_tool = lambda *a: (_ for _ in ()).throw(RuntimeError("/secret/path"))
+        try:
+            out = io.StringIO()
+            mc.serve_mcp(io.StringIO(json.dumps({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "x"}}) + "\n"), out)
+            self.assertNotIn("/secret/path", out.getvalue())
+        finally:
+            mc.call_tool = orig
+
     def test_unknown(self):
         self.assertEqual(self.rpc("nope")["error"]["code"], -32601)
         self.assertEqual(self.rpc("tools/call", {"name": "x"})["error"]["code"], -32602)
@@ -120,16 +151,19 @@ class HttpTests(Base):
         self.srv, self.token = mc.make_server(0, token="t0k")
         threading.Thread(target=self.srv.serve_forever, daemon=True).start()
         self.base = f"http://127.0.0.1:{self.srv.server_address[1]}"
+        self.cookie = login(self.srv)
 
     def tearDown(self):
         self.srv.shutdown()
         self.srv.server_close()
         super().tearDown()
 
-    def req(self, method, path, body=None, token="t0k", host=None):
+    def req(self, method, path, body=None, token="t0k", host=None, cookie=True):
         r = urllib.request.Request(self.base + path, method=method,
                                    data=json.dumps(body).encode() if body is not None else None)
         r.add_header("Content-Type", "application/json")
+        if cookie:
+            r.add_header("Cookie", self.cookie)
         if token:
             r.add_header("X-Token", token)
         if host:
@@ -151,8 +185,11 @@ class HttpTests(Base):
         self.assertEqual(self.req("POST", "/api/settings", {"theme": "light"}, token="bad")[0], 401)
 
     def test_anti_framing_headers(self):
-        with urllib.request.urlopen(self.base + "/") as r:
-            self.assertEqual(r.headers["X-Frame-Options"], "DENY")
+        for cookie in (True, False):  # both the app page and the locked page refuse framing
+            c = http.client.HTTPConnection("127.0.0.1", self.srv.server_address[1])
+            c.request("GET", "/", headers={"Cookie": self.cookie} if cookie else {})
+            resp = c.getresponse(); resp.read(); c.close()
+            self.assertEqual(resp.getheader("X-Frame-Options"), "DENY")
 
     def test_concurrent_writes_not_lost(self):
         def w(i):
@@ -160,6 +197,37 @@ class HttpTests(Base):
         ts = [threading.Thread(target=w, args=(i,)) for i in range(25)]
         [t.start() for t in ts]; [t.join() for t in ts]
         self.assertEqual(len(mc.load()), 25)
+
+    def test_other_local_users_cannot_get_the_page_or_token(self):
+        code, body = self.req("GET", "/", token=None, cookie=False)
+        self.assertEqual(code, 403)
+        self.assertNotIn(b"t0k", body)
+        self.assertEqual(self.req("GET", "/api/items", cookie=False)[0], 401)  # token alone is not enough
+
+    def test_launch_code_is_single_use_and_cookie_is_httponly(self):
+        c = http.client.HTTPConnection("127.0.0.1", self.srv.server_address[1])
+        c.request("GET", "/?k=" + self.srv.launch_code)
+        resp = c.getresponse(); resp.read(); c.close()
+        self.assertEqual(resp.status, 403)  # already used by setUp
+        c = http.client.HTTPConnection("127.0.0.1", self.srv.server_address[1])
+        c.request("GET", "/?k=wrong"); resp = c.getresponse(); resp.read(); c.close()
+        self.assertEqual(resp.status, 403)
+        srv2, _ = mc.make_server(0)
+        threading.Thread(target=srv2.serve_forever, daemon=True).start()
+        try:
+            c = http.client.HTTPConnection("127.0.0.1", srv2.server_address[1])
+            c.request("GET", "/?k=" + srv2.launch_code); resp = c.getresponse(); resp.read(); c.close()
+            sc = resp.getheader("Set-Cookie")
+            self.assertIn("HttpOnly", sc); self.assertIn("SameSite=Strict", sc)
+        finally:
+            srv2.shutdown(); srv2.server_close()
+
+    def test_negative_content_length_rejected(self):
+        c = http.client.HTTPConnection("127.0.0.1", self.srv.server_address[1], timeout=5)
+        c.putrequest("POST", "/api/items"); c.putheader("X-Token", "t0k"); c.putheader("Cookie", self.cookie)
+        c.putheader("Content-Length", "-1"); c.endheaders()
+        resp = c.getresponse(); resp.read(); c.close()
+        self.assertEqual(resp.status, 400)
 
     def test_page_served_with_token(self):
         code, body = self.req("GET", "/", token=None)
@@ -345,6 +413,29 @@ class ConnectTests(Base):
         self.assertTrue(link.is_symlink())
         self.assertIn("mcp-creds", json.loads(real.read_text())["mcpServers"])
 
+    def test_disconnect_restores_only_the_matching_part(self):
+        mc.set_item("AWS_CREDENTIALS", "aws_access_key_id = AKIAEXAMPLE\naws_secret_access_key = s3cr3t")
+        pre = mc.cmd_prefix()
+        p = self.write("claude", {"mcpServers": {"aws": {"command": pre[0], "args": pre[1:] + [
+            "run", "-e", "AWS_SECRET_ACCESS_KEY=AWS_CREDENTIALS", "--", "uvx", "aws-mcp"]}}})
+        self.assertTrue(mc.undo_app("claude"))
+        self.assertEqual(json.loads(p.read_text())["mcpServers"]["aws"]["env"], {"AWS_SECRET_ACCESS_KEY": "s3cr3t"})
+
+    def test_wrapped_requires_run_before_separator(self):
+        pre = mc.cmd_prefix()
+        self.assertFalse(mc._is_wrapped({"command": pre[0], "args": pre[1:] + ["--", "x", "run"]}))
+        self.assertTrue(mc._is_wrapped({"command": pre[0], "args": pre[1:] + ["run", "-e", "A", "--", "x"]}))
+
+    @unittest.skipIf(os.name == "nt", "symlinks need admin on Windows")
+    def test_backup_does_not_follow_planted_symlink(self):
+        self.write("claude", {"mcpServers": {}})
+        mc.backups_dir().mkdir(parents=True)
+        victim = Path(self.apps.name) / "victim.txt"; victim.write_text("keep me")
+        (mc.backups_dir() / "claude-previous.json").symlink_to(victim)
+        mc.connect_app("claude")
+        self.assertEqual(victim.read_text(), "keep me")
+        self.assertFalse((mc.backups_dir() / "claude-previous.json").is_symlink())
+
     def test_refuses_jsonc(self):
         p = self.cat["vscode"]["path"]; p.parent.mkdir(parents=True)
         p.write_text('{ // comment\n "servers": {} }')
@@ -358,10 +449,11 @@ class ConnectTests(Base):
         srv, _ = mc.make_server(0, token="t")
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         base = f"http://127.0.0.1:{srv.server_address[1]}"
+        cookie = login(srv)
         def call(path, body=None):
             r = urllib.request.Request(base + path, method="POST" if body is not None else "GET",
                                        data=json.dumps(body).encode() if body is not None else None,
-                                       headers={"X-Token": "t", "Content-Type": "application/json"})
+                                       headers={"X-Token": "t", "Content-Type": "application/json", "Cookie": cookie})
             with urllib.request.urlopen(r) as resp:
                 return json.loads(resp.read())
         try:
@@ -399,6 +491,16 @@ class RunTests(Base):
                          sys.executable, "-c", "import os,sys; sys.stdout.write(os.environ['AWS_ACCESS_KEY_ID']+'|'+os.environ['AWS_SECRET_ACCESS_KEY'])")
         self.assertEqual(r.stdout, "AKIAEXAMPLE|s3cr3t/abc")
         self.assertEqual(mc.value_part("single", "X"), "single")
+
+    def test_invalid_env_name_refused(self):
+        mc.set_item("K", "v")
+        r = self.run_cli("-e", "BAD-NAME=K", "--", sys.executable, "-c", "pass")
+        self.assertEqual(r.returncode, 2)
+
+    def test_psn_only_stripped_before_command(self):
+        mc.set_item("K", "v")
+        r = self.run_cli("-e", "K", "--", sys.executable, "-c", "import sys; print(sys.argv[1:])", "-psn_keep")
+        self.assertIn("-psn_keep", r.stdout)
 
     def test_missing_key_explains(self):
         r = self.run_cli("-e", "NOPE", "--", sys.executable, "-c", "pass")

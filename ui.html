@@ -874,9 +874,9 @@ $("connectBtn").onclick = () => { show($("drawer")); loadApps(); };
 $("exportBtn").onclick = async () => {
   const data = JSON.stringify(items, null, 2);
   if (window.pywebview && window.pywebview.api && window.pywebview.api.export_json) {
-    const where = await window.pywebview.api.export_json(data); if (where) toast("Saved to " + where.split(/[\\/]/).pop()); return;
+    const where = await window.pywebview.api.export_json(data); if (where) toast("Saved " + where.split(/[\\/]/).pop() + ". It holds your keys in plain text."); return;
   }
-  const a = h("a", {href: URL.createObjectURL(new Blob([data], {type: "application/json"})), download: "mcp-creds-export.json"}); a.click(); toast("Exported");
+  const a = h("a", {href: URL.createObjectURL(new Blob([data], {type: "application/json"})), download: "mcp-creds-export.json"}); a.click(); toast("Exported. The file holds your keys in plain text, keep it safe.");
 };
 
 /* theme */

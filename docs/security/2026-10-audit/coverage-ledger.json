@@ -1,0 +1,832 @@
+[
+ {
+  "coverage_id": ".github%2Fworkflows%2Frelease.yml%2Bci.yml::.github%2Fworkflows%23permissions%2Btriggers%2Baction%20refs::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Chained%20vulnerabilities%20and%20trust%20boundaries",
+  "canonical_refs": {
+   "surface": ".github/workflows/release.yml+ci.yml",
+   "boundary": ".github/workflows#permissions+triggers+action refs",
+   "subsystem": "profile/quick/all-in-scope-subsystems",
+   "attack_class": "ATTACK-CLASSES.md#Chained vulnerabilities and trust boundaries"
+  },
+  "surface": ".github/workflows/release.yml+ci.yml",
+  "boundary": ".github/workflows#permissions+triggers+action refs",
+  "subsystem": "profile/quick/all-in-scope-subsystems",
+  "attack_class": "ATTACK-CLASSES.md#Chained vulnerabilities and trust boundaries",
+  "starting_paths": [
+   ".github/workflows/release.yml",
+   ".github/workflows/ci.yml",
+   "packaging/build.sh",
+   "docs/index.html"
+  ],
+  "ordinary_attack_class_block": "ATTACK-CLASSES.md#Chained vulnerabilities and trust boundaries",
+  "selected_companion_blocks": [
+   "SUPPLY-CHAIN-AND-RELEASE.md#Core discipline (include in every agent prompt for this domain)",
+   "SUPPLY-CHAIN-AND-RELEASE.md#Dependency and build-input attack classes (subagent_type: `general`)",
+   "SUPPLY-CHAIN-AND-RELEASE.md#CI and automation attack classes (subagent_type: `general`)",
+   "SUPPLY-CHAIN-AND-RELEASE.md#Release and update attack classes (subagent_type: `general`)",
+   "SUPPLY-CHAIN-AND-RELEASE.md#Universal moves (apply across the above)",
+   "SUPPLY-CHAIN-AND-RELEASE.md#Validation rules (apply before reporting ANY finding here)"
+  ],
+  "excluded_blocks": [],
+  "prior_status": "new",
+  "attempts": [],
+  "wave": 1,
+  "status": "covered",
+  "agent_id": "h-supply-chain",
+  "reviewed_paths": [
+   ".github/workflows/ci.yml",
+   ".github/workflows/release.yml",
+   ".gitignore",
+   "docs/index.html",
+   "packaging/build.sh"
+  ],
+  "local_checks": [
+   {
+    "agent_id": "h-supply-chain",
+    "reviewed_paths": [
+     ".github/workflows/ci.yml"
+    ],
+    "invariant": "Contributor-controlled code (pull_request from forks) must not run with secrets, write tokens or publish authority.",
+    "method": "source",
+    "result": "ci.yml triggers on push and pull_request only (line 2). It does not use pull_request_target or workflow_run, does not reference secrets, and has no publish or deploy step. It only checks out the repo, sets up Python and runs unittest (lines 11 to 14). It has no permissions block, so it gets the repository default token. For pull_request events from forks, GitHub forces a read-only token and withholds secrets, and the job has no privileged sink in any case. Matrix values are static literals. No untrusted-to-privileged crossing.",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-supply-chain",
+    "reviewed_paths": [
+     ".github/workflows/release.yml"
+    ],
+    "invariant": "Only an authorized ref may reach the contents:write publish step, and only artifacts from the same run may be published.",
+    "method": "source",
+    "result": "release.yml triggers on push of tags v* or workflow_dispatch (lines 2 to 5). Both need repository write access, so this is the same principal as the maintainer. publish is gated by startsWith(github.ref, 'refs/tags/') (line 52), so a dispatch on a branch builds but does not publish. No pull_request, issue_comment or workflow_run trigger exists, so no lower-trust event reaches the contents:write token. download-artifact@v4 has no run-id or github-token input (lines 56 and 57), so it only gets artifacts uploaded by this same workflow run's build matrix (lines 47 to 50). No cross-run or cross-workflow artifact trust mixing.",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-supply-chain",
+    "reviewed_paths": [
+     ".github/workflows/release.yml"
+    ],
+    "invariant": "Attacker-controlled strings must not enter shell commands through ${{ }} expressions.",
+    "method": "source",
+    "result": "The only expressions interpolated into run scripts are matrix.bin (lines 37, 40 and 44) and runner.temp (line 35, set through env). The matrix values are static literals in the workflow file (lines 22 to 24). No github.event.*, head_ref, commit message, tag name or artifact name reaches a shell. No injection path.",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-supply-chain",
+    "reviewed_paths": [
+     "packaging/build.sh",
+     ".github/workflows/release.yml",
+     ".gitignore"
+    ],
+    "invariant": "Release archives must contain only intended release inputs (no persisted GITHUB_TOKEN, .git metadata, store.json or developer secrets).",
+    "method": "source",
+    "result": "build.sh runs rm -rf build dist (line 14). It then runs PyInstaller on mcpcreds.py with only --add-data ui.html (lines 18 to 23), and archives only dist/'MCP Creds' or the .app (lines 28, 30 and 31). The upload paths are the specific archive files (release.yml lines 22 to 24 and 50). actions/checkout persists the token in .git/config, but .git is not a PyInstaller input or an archive input. The smoke test writes its store to runner.temp (line 35), outside dist. No build-context inclusion of credentials.",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-supply-chain",
+    "reviewed_paths": [
+     "docs/index.html"
+    ],
+    "invariant": "Data the static landing page fetches from a third party must not reach a script-executing DOM sink.",
+    "method": "source",
+    "result": "The page fetches api.github.com/repos/manishh-13/mcp-creds (line 410). It writes the result only through textContent, and only after a typeof number check (line 411). Download links are built from a constant REL base plus constant filenames (lines 398 to 405). No sink for injection.",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-supply-chain",
+    "reviewed_paths": [
+     "packaging/build.sh",
+     ".github/workflows/release.yml"
+    ],
+    "invariant": "Mutable build inputs must have a lower-trust writer reachable from the repository before they count as a finding.",
+    "method": "source",
+    "result": "build.sh resolves pillow, pyinstaller and pywebview from PyPI through uv --with with no version pins or lockfile (lines 10, 16 and 18). Workflows reference actions by mutable major tags (actions/checkout@v4, setup-python@v5, astral-sh/setup-uv@v6, upload/download-artifact@v4, softprops/action-gh-release@v2). The only writers who could change these inputs are upstream package or action publishers. That is ordinary third-party trust, not a source-visible lower-trust repository principal. Per the supply-chain validation rule 1, it is recorded as hardening, not a candidate.",
+    "artifact": null
+   }
+  ],
+  "result_fingerprints": [],
+  "unresolved": []
+ },
+ {
+  "coverage_id": "mcpcreds.py%23DesktopApi.export_json%20%2B%20ui.html%20export%20%28blob%20download%2C%20line%20818-821%29%20%2B%20main%20%27export%27%20CLI::mcpcreds.py%23export_json%20Path.write_text%20%28no%20chmod%29%20vs%20store%200600%2F0700%20invariant::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Feature%20abuse%20and%20data%20leakage",
+  "canonical_refs": {
+   "surface": "mcpcreds.py#DesktopApi.export_json + ui.html export (blob download, line 818-821) + main 'export' CLI",
+   "boundary": "mcpcreds.py#export_json Path.write_text (no chmod) vs store 0600/0700 invariant",
+   "subsystem": "profile/quick/all-in-scope-subsystems",
+   "attack_class": "ATTACK-CLASSES.md#Feature abuse and data leakage"
+  },
+  "surface": "mcpcreds.py#DesktopApi.export_json + ui.html export (blob download, line 818-821) + main 'export' CLI",
+  "boundary": "mcpcreds.py#export_json Path.write_text (no chmod) vs store 0600/0700 invariant",
+  "subsystem": "profile/quick/all-in-scope-subsystems",
+  "attack_class": "ATTACK-CLASSES.md#Feature abuse and data leakage",
+  "starting_paths": [
+   "mcpcreds.py",
+   "ui.html"
+  ],
+  "ordinary_attack_class_block": "ATTACK-CLASSES.md#Feature abuse and data leakage",
+  "selected_companion_blocks": [
+   "DATA-ISOLATION-AND-LIFECYCLE.md#Core discipline (include in every agent prompt for this domain)",
+   "DATA-ISOLATION-AND-LIFECYCLE.md#Export, backup, restore, and migration attack classes (subagent_type: `general`)",
+   "DATA-ISOLATION-AND-LIFECYCLE.md#Universal moves (apply across the above)",
+   "DATA-ISOLATION-AND-LIFECYCLE.md#Validation rules (apply before reporting ANY finding here)",
+   "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Webview and native-bridge attack classes (subagent_type: `general`)"
+  ],
+  "excluded_blocks": [
+   {
+    "block": "DATA-ISOLATION-AND-LIFECYCLE.md#Tenant and object-isolation attack classes (subagent_type: `general`)",
+    "reason": "single user, no tenants"
+   }
+  ],
+  "prior_status": "new",
+  "attempts": [],
+  "wave": 1,
+  "status": "deferred",
+  "agent_id": null,
+  "reviewed_paths": [],
+  "local_checks": [],
+  "result_fingerprints": [],
+  "unresolved": [
+   "Not hunted: quick profile records final-critic discoveries as deferred. Critic reason: No unit checked the full-secret export paths. DesktopApi.export_json (mcpcreds.py:902-910) writes every value with Path(path).write_text and never chmods, so the file gets the umask mode (often 0644) in a folder the user picks. The browser fallback (ui.html:821) saves a blob to the browser's download folder. The CLI 'export' (line 988-989) prints the whole store. The config-files unit selected the Export block, but its checks only covered the backup mode. Whether export output drops below the 0600 store invariant for other OS users (in scope per SECURITY.md) has not been checked."
+  ],
+  "deferred_reason": "quick_profile_final_critic",
+  "critic_reason": "No unit checked the full-secret export paths. DesktopApi.export_json (mcpcreds.py:902-910) writes every value with Path(path).write_text and never chmods, so the file gets the umask mode (often 0644) in a folder the user picks. The browser fallback (ui.html:821) saves a blob to the browser's download folder. The CLI 'export' (line 988-989) prints the whole store. The config-files unit selected the Export block, but its checks only covered the backup mode. Whether export output drops below the 0600 store invariant for other OS users (in scope per SECURITY.md) has not been checked."
+ },
+ {
+  "coverage_id": "mcpcreds.py%23cmd_prefix%20%2B%20_our_entry%20%2B%20connect_app%20wrapped%20command%20%28HTTP%20%2Fapi%2Fapps%2Fconnect%20and%20CLI%20connect%29::mcpcreds.py%23location_warning%20%28advisory%20only%29%20vs%20launch-target%20written%20into%20AI%20app%20configs::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Chained%20vulnerabilities%20and%20trust%20boundaries",
+  "canonical_refs": {
+   "surface": "mcpcreds.py#cmd_prefix + _our_entry + connect_app wrapped command (HTTP /api/apps/connect and CLI connect)",
+   "boundary": "mcpcreds.py#location_warning (advisory only) vs launch-target written into AI app configs",
+   "subsystem": "profile/quick/all-in-scope-subsystems",
+   "attack_class": "ATTACK-CLASSES.md#Chained vulnerabilities and trust boundaries"
+  },
+  "surface": "mcpcreds.py#cmd_prefix + _our_entry + connect_app wrapped command (HTTP /api/apps/connect and CLI connect)",
+  "boundary": "mcpcreds.py#location_warning (advisory only) vs launch-target written into AI app configs",
+  "subsystem": "profile/quick/all-in-scope-subsystems",
+  "attack_class": "ATTACK-CLASSES.md#Chained vulnerabilities and trust boundaries",
+  "starting_paths": [
+   "mcpcreds.py",
+   "ui.html",
+   "packaging/build.sh",
+   "README.md"
+  ],
+  "ordinary_attack_class_block": "ATTACK-CLASSES.md#Chained vulnerabilities and trust boundaries",
+  "selected_companion_blocks": [
+   "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Core discipline (include in every agent prompt for this domain)",
+   "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Privileged-helper and local-file attack classes (subagent_type: `general`)",
+   "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Universal moves (apply across the above)",
+   "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Validation rules (apply before reporting ANY finding here)"
+  ],
+  "excluded_blocks": [
+   {
+    "block": "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Deep-link, callback, and navigation attack classes (subagent_type: `general`)",
+    "reason": "no deep links"
+   }
+  ],
+  "prior_status": "new",
+  "attempts": [],
+  "wave": 1,
+  "status": "deferred",
+  "agent_id": null,
+  "reviewed_paths": [],
+  "local_checks": [],
+  "result_fingerprints": [],
+  "unresolved": [
+   "Not hunted: quick profile records final-critic discoveries as deferred. Critic reason: Protected resource (3), 'what program a rewritten config launches', has no unit for the program MCP Creds itself writes. The existing checks only show that the ORIGINAL command is kept. cmd_prefix (lines 460-464) persists sys.executable plus the resolved __file__ into every connected app config. location_warning (467-473) flags /tmp/, /private/var/folders/, Downloads and uv archive paths, but it is advisory only: neither connect_app nor the CLI connect (default: all installed apps) refuses. Not yet checked: whether the persisted interpreter or script path can sit in a location that a lower-trust local user can write (shared /tmp parents, a non-standard python3 or venv, an unsigned or ad-hoc-signed .app outside /Applications), which would let that user later run code as the victim and receive the injected keys."
+  ],
+  "deferred_reason": "quick_profile_final_critic",
+  "critic_reason": "Protected resource (3), 'what program a rewritten config launches', has no unit for the program MCP Creds itself writes. The existing checks only show that the ORIGINAL command is kept. cmd_prefix (lines 460-464) persists sys.executable plus the resolved __file__ into every connected app config. location_warning (467-473) flags /tmp/, /private/var/folders/, Downloads and uv archive paths, but it is advisory only: neither connect_app nor the CLI connect (default: all installed apps) refuses. Not yet checked: whether the persisted interpreter or script path can sit in a location that a lower-trust local user can write (shared /tmp parents, a non-standard python3 or venv, an unsigned or ad-hoc-signed .app outside /Applications), which would let that user later run code as the victim and receive the injected keys."
+ },
+ {
+  "coverage_id": "mcpcreds.py%23connect_app%2Bundo_app%2B_unwrap::mcpcreds.py%23_read_cfg%20fingerprint%2B_write_cfg%2B_backup::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Resource%20and%20file%20handling",
+  "canonical_refs": {
+   "surface": "mcpcreds.py#connect_app+undo_app+_unwrap",
+   "boundary": "mcpcreds.py#_read_cfg fingerprint+_write_cfg+_backup",
+   "subsystem": "profile/quick/all-in-scope-subsystems",
+   "attack_class": "ATTACK-CLASSES.md#Resource and file handling"
+  },
+  "surface": "mcpcreds.py#connect_app+undo_app+_unwrap",
+  "boundary": "mcpcreds.py#_read_cfg fingerprint+_write_cfg+_backup",
+  "subsystem": "profile/quick/all-in-scope-subsystems",
+  "attack_class": "ATTACK-CLASSES.md#Resource and file handling",
+  "starting_paths": [
+   "mcpcreds.py"
+  ],
+  "ordinary_attack_class_block": "ATTACK-CLASSES.md#Resource and file handling",
+  "selected_companion_blocks": [
+   "DATA-ISOLATION-AND-LIFECYCLE.md#Core discipline (include in every agent prompt for this domain)",
+   "DATA-ISOLATION-AND-LIFECYCLE.md#Export, backup, restore, and migration attack classes (subagent_type: `general`)",
+   "DATA-ISOLATION-AND-LIFECYCLE.md#Deletion, revocation, and lifecycle attack classes (subagent_type: `general`)",
+   "DATA-ISOLATION-AND-LIFECYCLE.md#Universal moves (apply across the above)",
+   "DATA-ISOLATION-AND-LIFECYCLE.md#Validation rules (apply before reporting ANY finding here)",
+   "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Core discipline (include in every agent prompt for this domain)",
+   "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Privileged-helper and local-file attack classes (subagent_type: `general`)",
+   "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Universal moves (apply across the above)",
+   "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Validation rules (apply before reporting ANY finding here)"
+  ],
+  "excluded_blocks": [
+   {
+    "block": "DATA-ISOLATION-AND-LIFECYCLE.md#Tenant and object-isolation attack classes (subagent_type: `general`)",
+    "reason": "single user, no tenants"
+   }
+  ],
+  "prior_status": "new",
+  "attempts": [],
+  "wave": 1,
+  "status": "candidate",
+  "agent_id": "h-config-files",
+  "reviewed_paths": [
+   "README.md",
+   "mcpcreds.py",
+   "test_mcpcreds.py"
+  ],
+  "local_checks": [
+   {
+    "agent_id": "h-config-files",
+    "reviewed_paths": [
+     "mcpcreds.py"
+    ],
+    "invariant": "The _read_cfg fingerprint must stop _write_cfg from replacing a config that the AI app changed after the read.",
+    "method": "source",
+    "result": "_write_cfg (lines 546 to 562) recomputes (st_mtime_ns, st_size) at line 549 and raises ConfigChanged when it differs from fp (line 550); _with_retry retries 3 times. There is still a window between the check at 549 and os.replace at 562 (the _backup copy and json.dump run in between), and a same-size write inside one mtime tick is not detected on coarse-mtime filesystems. The only possible effect is a lost update of the user's own app write. Both writers run as the same user, so no lower-trust principal crosses a boundary. Not a finding; noted as hardening.",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-config-files",
+    "reviewed_paths": [
+     "mcpcreds.py"
+    ],
+    "invariant": "Symlinked configs and backup targets must not let a lower-trust principal redirect writes.",
+    "method": "source",
+    "result": "_read_cfg (line 525) and _write_cfg (line 547) resolve p only when it is a symlink, then write the resolved target through mkstemp in the target's parent and os.replace. _backup uses shutil.copyfile (line 519), which follows a symlink already sitting at the backup path. Every config path comes from apps_catalog under the user's home (or MCPCREDS_APPS_HOME), and the backups dir is chmod 0700 (lines 509 to 513), so only the same user could plant a link. No lower-trust writer found; covered.",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-config-files",
+    "reviewed_paths": [
+     "mcpcreds.py",
+     "test_mcpcreds.py"
+    ],
+    "invariant": "Backups that may hold inline tokens must not be readable by other OS users.",
+    "method": "source",
+    "result": "_backup creates the backups dir, chmods both it and home() to 0700, then copies and chmods each target to 0600 (lines 508 to 520). copyfile briefly creates the file with umask mode, but the parent dir is already 0700. The 0600 mode is checked by test_mcpcreds.py line 231. The original file is never overwritten because of the exists() check at line 516. Covered.",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-config-files",
+    "reviewed_paths": [
+     "mcpcreds.py"
+    ],
+    "invariant": "Secure connect must store the moved tokens before the config loses them, and must keep the original command and args.",
+    "method": "source",
+    "result": "connect_app saves new_items while holding locked() before _write_cfg (lines 699 to 705). _free_name reuses an existing name only when its value is exactly equal, so a different stored value is never overwritten. The wrapped args are pre[1:]+run+flags+--+original command+original args. Covered.",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-config-files",
+    "reviewed_paths": [
+     "mcpcreds.py",
+     "README.md"
+    ],
+    "invariant": "Disconnect (_unwrap) must give each wrapped server only what run gave it (value_part per var), and must not write stored secrets into config files that never held them.",
+    "method": "source",
+    "result": "_unwrap line 723 writes items[key][\"value\"] (the whole stored value) into env[var], with no value_part. run_with_keys line 377 uses value_part. _unwrap also acts on any -e flag in any entry that _is_wrapped matches, including hand-written wrappers from README line 119, which had no inline secret before. The config is written back with the original file mode (line 559). Reported as a needs_validation candidate.",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-config-files",
+    "reviewed_paths": [
+     "mcpcreds.py"
+    ],
+    "invariant": "Undo must not crash or corrupt a config whose wrapped args are malformed.",
+    "method": "source",
+    "result": "_is_wrapped (line 585) checks only that run and -- are present, not their order. With args [..., \"--\", ..., \"run\"], args.index(\"--\", i) inside _unwrap raises ValueError and undo aborts before any write. No corruption, same-user only. Hardening.",
+    "artifact": null
+   }
+  ],
+  "result_fingerprints": [
+   "mcpcreds.py:_unwrap:full-store-value-written-to-config-env"
+  ],
+  "unresolved": [
+   "Whether AI app config files such as ~/.cursor/mcp.json or ~/.claude.json are readable by other local users on supported Linux distros (file mode plus home dir traverse permission). This decides whether the _unwrap candidate crosses the other-OS-user boundary."
+  ]
+ },
+ {
+  "coverage_id": "mcpcreds.py%23delete_item%20%2B%20undo_app%2F_unwrap%20%2B%20_backup%20retention::mcpcreds.py%23backups%2F%3Capp%3E-original.json%20kept%20forever%20vs%20store%20deletion::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Resource%20and%20file%20handling",
+  "canonical_refs": {
+   "surface": "mcpcreds.py#delete_item + undo_app/_unwrap + _backup retention",
+   "boundary": "mcpcreds.py#backups/<app>-original.json kept forever vs store deletion",
+   "subsystem": "profile/quick/all-in-scope-subsystems",
+   "attack_class": "ATTACK-CLASSES.md#Resource and file handling"
+  },
+  "surface": "mcpcreds.py#delete_item + undo_app/_unwrap + _backup retention",
+  "boundary": "mcpcreds.py#backups/<app>-original.json kept forever vs store deletion",
+  "subsystem": "profile/quick/all-in-scope-subsystems",
+  "attack_class": "ATTACK-CLASSES.md#Resource and file handling",
+  "starting_paths": [
+   "mcpcreds.py",
+   "ui.html",
+   "README.md",
+   "SECURITY.md"
+  ],
+  "ordinary_attack_class_block": "ATTACK-CLASSES.md#Resource and file handling",
+  "selected_companion_blocks": [
+   "DATA-ISOLATION-AND-LIFECYCLE.md#Core discipline (include in every agent prompt for this domain)",
+   "DATA-ISOLATION-AND-LIFECYCLE.md#Deletion, revocation, and lifecycle attack classes (subagent_type: `general`)",
+   "DATA-ISOLATION-AND-LIFECYCLE.md#Universal moves (apply across the above)",
+   "DATA-ISOLATION-AND-LIFECYCLE.md#Validation rules (apply before reporting ANY finding here)"
+  ],
+  "excluded_blocks": [
+   {
+    "block": "DATA-ISOLATION-AND-LIFECYCLE.md#Tenant and object-isolation attack classes (subagent_type: `general`)",
+    "reason": "single user, no tenants"
+   }
+  ],
+  "prior_status": "new",
+  "attempts": [],
+  "wave": 1,
+  "status": "deferred",
+  "agent_id": null,
+  "reviewed_paths": [],
+  "local_checks": [],
+  "result_fingerprints": [],
+  "unresolved": [
+   "Not hunted: quick profile records final-critic discoveries as deferred. Critic reason: The Deletion block was selected on the config-files unit, but none of its local_checks covers deletion. delete_item (mcpcreds.py:168-175, reached from HTTP DELETE, the CLI rm and the UI) removes the store entry only. The inline tokens that connect --secure moved stay in backups/<app>-original.json, which is never overwritten or purged (line 516), and in -previous.json. _unwrap (lines 711-735) silently drops env vars whose key was deleted. Still unchecked: whether docs or the UI promise that deleting or rotating a key removes it, and whether the retained copies break that promise."
+  ],
+  "deferred_reason": "quick_profile_final_critic",
+  "critic_reason": "The Deletion block was selected on the config-files unit, but none of its local_checks covers deletion. delete_item (mcpcreds.py:168-175, reached from HTTP DELETE, the CLI rm and the UI) removes the store entry only. The inline tokens that connect --secure moved stay in backups/<app>-original.json, which is never overwritten or purged (line 516), and in -previous.json. _unwrap (lines 711-735) silently drops env vars whose key was deleted. Still unchecked: whether docs or the UI promise that deleting or rotating a key removes it, and whether the retained copies break that promise."
+ },
+ {
+  "coverage_id": "mcpcreds.py%23make_server%20Handler%20%2Fapi%2F%2A::mcpcreds.py%23Handler._host_ok%2B_authed::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Access%20control",
+  "canonical_refs": {
+   "surface": "mcpcreds.py#make_server Handler /api/*",
+   "boundary": "mcpcreds.py#Handler._host_ok+_authed",
+   "subsystem": "profile/quick/all-in-scope-subsystems",
+   "attack_class": "ATTACK-CLASSES.md#Access control"
+  },
+  "surface": "mcpcreds.py#make_server Handler /api/*",
+  "boundary": "mcpcreds.py#Handler._host_ok+_authed",
+  "subsystem": "profile/quick/all-in-scope-subsystems",
+  "attack_class": "ATTACK-CLASSES.md#Access control",
+  "starting_paths": [
+   "mcpcreds.py"
+  ],
+  "ordinary_attack_class_block": "ATTACK-CLASSES.md#Access control",
+  "selected_companion_blocks": [
+   "WEB-PROTOCOL-AND-AUTH.md#Core discipline (include in every agent prompt for this domain)",
+   "WEB-PROTOCOL-AND-AUTH.md#HTTP framing and cache attack classes (subagent_type: `general`)",
+   "WEB-PROTOCOL-AND-AUTH.md#Browser-session attack classes (subagent_type: `general`)",
+   "WEB-PROTOCOL-AND-AUTH.md#API-key and mTLS attack classes (subagent_type: `general`)",
+   "WEB-PROTOCOL-AND-AUTH.md#Universal moves (apply across the above)",
+   "WEB-PROTOCOL-AND-AUTH.md#Validation rules (apply before reporting ANY finding here)",
+   "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Core discipline (include in every agent prompt for this domain)",
+   "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Local IPC and exported-component attack classes (subagent_type: `general`)",
+   "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Webview and native-bridge attack classes (subagent_type: `general`)",
+   "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Universal moves (apply across the above)",
+   "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Validation rules (apply before reporting ANY finding here)"
+  ],
+  "excluded_blocks": [
+   {
+    "block": "WEB-PROTOCOL-AND-AUTH.md#Federated-identity attack classes (subagent_type: `general`)",
+    "reason": "no federated identity"
+   },
+   {
+    "block": "WEB-PROTOCOL-AND-AUTH.md#MFA, passkey, and account-transition attack classes (subagent_type: `general`)",
+    "reason": "no accounts or MFA"
+   }
+  ],
+  "prior_status": "new",
+  "attempts": [],
+  "wave": 1,
+  "status": "candidate",
+  "agent_id": "h-web-api",
+  "reviewed_paths": [
+   "README.md",
+   "SECURITY.md",
+   "mcpcreds.py",
+   "ui.html"
+  ],
+  "local_checks": [
+   {
+    "agent_id": "h-web-api",
+    "reviewed_paths": [
+     "mcpcreds.py"
+    ],
+    "invariant": "Every /api/* route (GET /api/items, GET /api/apps, POST /api/items, /api/import, /api/apps/connect, /api/apps/undo, DELETE /api/items/<name>) runs the Host check and the X-Token check before it does anything",
+    "method": "source",
+    "result": "Holds. do_GET routes /api/apps and /api/items only through _authed (mcpcreds.py:816-825). do_POST returns 404 for unknown paths and calls _authed before _body (829-833). do_DELETE calls _authed before unquote/delete_item (858-861). _authed checks Host first, then secrets.compare_digest on X-Token (793-800). There is no method override and no alternate route to the same state changes.",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-web-api",
+    "reviewed_paths": [
+     "mcpcreds.py",
+     "ui.html"
+    ],
+    "invariant": "Cross-origin web pages cannot read or change keys: no ambient credential, the custom header forces a CORS preflight that is never answered, and the Host check blocks DNS rebinding",
+    "method": "source",
+    "result": "Holds. There are no cookies, so there is no ambient credential and CSRF does not apply. The UI sends X-Token plus Content-Type application/json (ui.html:438), which needs a preflight; there is no do_OPTIONS handler and no Access-Control-* header. _host_ok takes the Host header up to the first ':' and allows only 127.0.0.1 or localhost (mcpcreds.py:789-791), so a rebound attacker hostname is rejected; '[::1]' and a trailing-dot 'localhost.' are also rejected. The token page GET / also checks Host (808), so a rebound origin cannot read it. X-Frame-Options DENY and CSP frame-ancestors 'none' are on every response (783-784), which blocks clickjacking the connect/delete buttons.",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-web-api",
+    "reviewed_paths": [
+     "mcpcreds.py",
+     "SECURITY.md",
+     "README.md"
+    ],
+    "invariant": "Another OS user on the same machine (in scope per SECURITY.md:13) cannot get the session token and so cannot read or change keys through the loopback API",
+    "method": "source",
+    "result": "Fails. GET / needs only a localhost Host header, which a non-browser client can set freely, and returns the HTML with the live session token substituted in (mcpcreds.py:807-815, ui.html:376). The listener is a plain TCP socket on 127.0.0.1 (872), reachable by every local account, with no peer-credential check. Any local user can fetch / then call GET /api/items with the token to read every secret (820-823), or call POST/DELETE to overwrite or remove keys, or rewrite and undo the victim's AI app configs. The token therefore only stops browsers (blocked by the same-origin policy), not other local principals. Reported as candidate mcpcreds.py/make_server/root-page-discloses-session-token.",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-web-api",
+    "reviewed_paths": [
+     "mcpcreds.py"
+    ],
+    "invariant": "Request body fields cannot widen what an authed request can do (bulk/import/connect operate on validated names and catalog app ids)",
+    "method": "source",
+    "result": "Holds for this unit. import_items checks every name with check_name (strip plus NAME_RE) and requires a non-empty string value before taking one lock and writing once. set_item does the same checks. A non-dict body raises AttributeError, which is caught and returned as 400. connect_app/undo_app take only str(app_id); catalog lookup and the file rewrite belong to the peer unit. The authed caller is the local user, who has full authority by design.",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-web-api",
+    "reviewed_paths": [
+     "mcpcreds.py",
+     "ui.html"
+    ],
+    "invariant": "The pywebview js_api bridge (copy, export_json) is reachable only from the app's own loopback page and gives no file or command choice to web content",
+    "method": "source",
+    "result": "Holds by source. The window loads only the server's own 127.0.0.1 URL (mcpcreds.py:914-925). ui.html has no external links, iframes or navigations. copy only writes text to the clipboard, using a fixed argv. export_json writes the page's data only to a path the user picks in a native save dialog. Whether pywebview limits js_api by origin after a navigation is a library fact, but no navigation path exists in the page.",
+    "artifact": null
+   }
+  ],
+  "result_fingerprints": [
+   "mcpcreds.py/make_server/root-page-discloses-session-token"
+  ],
+  "unresolved": [
+   "Runtime confirmation that a second, unprivileged OS account can connect to 127.0.0.1:<port> and fetch / with Host: 127.0.0.1 (not executed: this run's sandbox cannot enforce a memory limit)"
+  ]
+ },
+ {
+  "coverage_id": "mcpcreds.py%23run_with_keys%2B_run_windows::mcpcreds.py%23argv%20list%20exec%20%2B%20_cmd_quote%20%2B%20augmented_path::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Injection",
+  "canonical_refs": {
+   "surface": "mcpcreds.py#run_with_keys+_run_windows",
+   "boundary": "mcpcreds.py#argv list exec + _cmd_quote + augmented_path",
+   "subsystem": "profile/quick/all-in-scope-subsystems",
+   "attack_class": "ATTACK-CLASSES.md#Injection"
+  },
+  "surface": "mcpcreds.py#run_with_keys+_run_windows",
+  "boundary": "mcpcreds.py#argv list exec + _cmd_quote + augmented_path",
+  "subsystem": "profile/quick/all-in-scope-subsystems",
+  "attack_class": "ATTACK-CLASSES.md#Injection",
+  "starting_paths": [
+   "mcpcreds.py"
+  ],
+  "ordinary_attack_class_block": "ATTACK-CLASSES.md#Injection",
+  "selected_companion_blocks": [
+   "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Core discipline (include in every agent prompt for this domain)",
+   "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Privileged-helper and local-file attack classes (subagent_type: `general`)",
+   "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Universal moves (apply across the above)",
+   "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Validation rules (apply before reporting ANY finding here)"
+  ],
+  "excluded_blocks": [
+   {
+    "block": "DESKTOP-MOBILE-AND-LOCAL-IPC.md#Deep-link, callback, and navigation attack classes (subagent_type: `general`)",
+    "reason": "no deep links"
+   }
+  ],
+  "prior_status": "new",
+  "attempts": [],
+  "wave": 1,
+  "status": "covered",
+  "agent_id": "h-run",
+  "reviewed_paths": [
+   "mcpcreds.py"
+  ],
+  "local_checks": [
+   {
+    "agent_id": "h-run",
+    "reviewed_paths": [
+     "mcpcreds.py"
+    ],
+    "invariant": "POSIX run never goes through a shell: the original command and args from the wrapped config reach the child as a separate argv vector",
+    "method": "source",
+    "result": "run_with_keys (mcpcreds.py:335) splits argv at the first '--' or the first unrecognised token. cmd = argv[i:] (line 356) is passed unchanged to os.execve(exe, cmd, env) (line 382), and exe comes from shutil.which or falls back to cmd[0] (line 379). No shell, string join or format interpolation is involved, so shell metacharacters in args stay inert. connect_app always emits an explicit '--' before the original command (line 698), so an original command named '-e' or '--all' cannot be read as a run flag.",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-run",
+    "reviewed_paths": [
+     "mcpcreds.py"
+    ],
+    "invariant": "A child started through run gets only the keys named for it (-e) or, with --all, explicitly every store key; nothing else from the store leaks",
+    "method": "source",
+    "result": "env starts as os.environ.copy() of the run process (line 367), which is the AI app's environment and not the store. Only (var, key) pairs taken from -e flags, or from --all when the key matches ENV_RE (lines 360-361), are added (lines 375-376). connect_app writes only -e flags, never --all (lines 689-698). value_part (line 323) returns one matching line of a multi-part value, or the whole value of the named key; it never returns other keys. Missing keys stop the launch before exec (lines 362-366).",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-run",
+    "reviewed_paths": [
+     "mcpcreds.py"
+    ],
+    "invariant": "augmented_path does not let a directory writable by a lower-trust principal take precedence over the caller's PATH",
+    "method": "source",
+    "result": "Existing PATH entries keep their order. Empty entries are dropped (line 309), and the extra directories (EXTRA_BIN_DIRS line 303 plus ~/.nvm versions, lines 311-313) are only appended, and only if missing and existing (lines 314-316). All extra directories are user-home or Homebrew-prefix paths, which belong to the same principal on standard installs. Precedence over the original PATH is never changed.",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-run",
+    "reviewed_paths": [
+     "mcpcreds.py"
+    ],
+    "invariant": "Windows .cmd/.bat launch quotes each argument so that cmd.exe metacharacters cannot break out and start another command",
+    "method": "source",
+    "result": "_cmd_quote (lines 389-392) wraps any argument containing whitespace or & | < > ^ % \" ( ) , ; = in double quotes and doubles internal quotes. With 'cmd.exe /d /s /c \"...\"' (line 400) the outer quotes are stripped, and each '\"\"' toggles the quote state twice, so &|<>^ inside the argument stay quoted. Remaining gaps are %VAR% expansion and CR/LF, which _cmd_quote does not neutralise. The argument source is the user's own AI app config, the same principal, so no lower-trust input reaches this sink in source. Recorded as hardening. Non-.cmd/.bat executables use a list Popen (line 402), which goes through list2cmdline, not cmd.exe.",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-run",
+    "reviewed_paths": [
+     "mcpcreds.py"
+    ],
+    "invariant": "The -e variable name and key selector cannot be supplied by a lower-trust principal",
+    "method": "source",
+    "result": "The -e VAR[=KEY] values come only from the argv the AI app passes, which is the config written by the user or by connect_app from ENV_RE-validated env names (line 593 filter and line 697). VAR is not checked against ENV_RE for explicit -e (line 348). A dangerous name such as DYLD_INSERT_LIBRARIES or NODE_OPTIONS can only come from the config author (the same principal). The web API, the MCP tools and the LLM have no path in this unit that writes run argv. An empty VAR ('-e =K') makes os.execve raise ValueError, which is not caught at line 383 and only crashes the launch: not a security issue.",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-run",
+    "reviewed_paths": [
+     "mcpcreds.py"
+    ],
+    "invariant": "Executable resolution for the wrapped child is not weaker than the AI app's own resolution (no new current-directory or PATHEXT hijack)",
+    "method": "source",
+    "result": "On Windows, shutil.which(cmd[0], path=env['PATH']) (line 379) consults the current directory first by default (NeedCurrentDirectoryForExePathW) and tries PATHEXT extensions. An AI app that starts servers with a project cwd could therefore resolve a bare 'npx' to a .\\npx.cmd in that project. The AI apps' own Node-based MCP launchers (cross-spawn/node-which) and 'cmd /c' configs also search the cwd first on Windows, so source shows no delta that crosses a boundary relative to the unwrapped baseline. Recorded as hardening, not as a candidate. On POSIX, which uses only the PATH entries (empty ones were dropped at line 309).",
+    "artifact": null
+   }
+  ],
+  "result_fingerprints": [],
+  "unresolved": []
+ },
+ {
+  "coverage_id": "mcpcreds.py%23save%2Blocked%2Bimport_items%2Bsave_settings::mcpcreds.py%230700%2F0600%20permissions%20%2B%20atomic%20replace::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Cryptography%20and%20secrets",
+  "canonical_refs": {
+   "surface": "mcpcreds.py#save+locked+import_items+save_settings",
+   "boundary": "mcpcreds.py#0700/0600 permissions + atomic replace",
+   "subsystem": "profile/quick/all-in-scope-subsystems",
+   "attack_class": "ATTACK-CLASSES.md#Cryptography and secrets"
+  },
+  "surface": "mcpcreds.py#save+locked+import_items+save_settings",
+  "boundary": "mcpcreds.py#0700/0600 permissions + atomic replace",
+  "subsystem": "profile/quick/all-in-scope-subsystems",
+  "attack_class": "ATTACK-CLASSES.md#Cryptography and secrets",
+  "starting_paths": [
+   "mcpcreds.py"
+  ],
+  "ordinary_attack_class_block": "ATTACK-CLASSES.md#Cryptography and secrets",
+  "selected_companion_blocks": [
+   "DATA-ISOLATION-AND-LIFECYCLE.md#Core discipline (include in every agent prompt for this domain)",
+   "DATA-ISOLATION-AND-LIFECYCLE.md#Derived-data and disclosure attack classes (subagent_type: `general`)",
+   "DATA-ISOLATION-AND-LIFECYCLE.md#Universal moves (apply across the above)",
+   "DATA-ISOLATION-AND-LIFECYCLE.md#Validation rules (apply before reporting ANY finding here)"
+  ],
+  "excluded_blocks": [],
+  "prior_status": "new",
+  "attempts": [],
+  "wave": 1,
+  "status": "covered",
+  "agent_id": "h-config-files",
+  "reviewed_paths": [
+   "mcpcreds.py"
+  ],
+  "local_checks": [
+   {
+    "agent_id": "h-config-files",
+    "reviewed_paths": [
+     "mcpcreds.py"
+    ],
+    "invariant": "store.json must never exist, even for a moment, with permissions broader than 0600 inside a 0700 folder.",
+    "method": "source",
+    "result": "save() chmods home to 0700 (line 70). tempfile.mkstemp creates the temp file 0600 by default in the same dir, line 76 chmods it 0600 again, and os.replace swaps it in atomically (line 79). The temp file is never world-readable. Windows relies on profile ACL inheritance. Covered.",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-config-files",
+    "reviewed_paths": [
+     "mcpcreds.py"
+    ],
+    "invariant": "The cross-process lock must prevent lost writes between the UI and MCP processes.",
+    "method": "source",
+    "result": "locked() uses O_CREAT|O_EXCL (line 98). Stale-lock removal after 10s (lines 101 to 102) is a check-then-unlink race: two waiters can each unlink, and the finally block (line 114) unlinks without checking ownership, so it can delete a lock that another process now holds. The effect is a possible lost update between processes of the same user. No lower-trust principal and no disclosure. Hardening.",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-config-files",
+    "reviewed_paths": [
+     "mcpcreds.py"
+    ],
+    "invariant": "import_items and set_item must validate everything before writing, and must not leak secret values in errors.",
+    "method": "source",
+    "result": "import_items validates every name with check_name and checks each value is a non-empty string before taking the lock (lines 143 to 165). The error messages include names only, never values. A save_settings function does not exist at this commit (no 'settings' symbol in mcpcreds.py). Covered.",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-config-files",
+    "reviewed_paths": [
+     "mcpcreds.py"
+    ],
+    "invariant": "No security-critical randomness or crypto misuse in the store path.",
+    "method": "source",
+    "result": "The store is plaintext by documented design (README line 126). It uses no crypto primitives, so there is no error path that could fall back to no-crypto. Temp names come from mkstemp. Nothing to report.",
+    "artifact": null
+   }
+  ],
+  "result_fingerprints": [],
+  "unresolved": []
+ },
+ {
+  "coverage_id": "mcpcreds.py%23serve_mcp%2Bhandle_rpc%2Bcall_tool::mcpcreds.py%23TOOLS%20list_credentials%2Fget_credential::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Feature%20abuse%20and%20data%20leakage",
+  "canonical_refs": {
+   "surface": "mcpcreds.py#serve_mcp+handle_rpc+call_tool",
+   "boundary": "mcpcreds.py#TOOLS list_credentials/get_credential",
+   "subsystem": "profile/quick/all-in-scope-subsystems",
+   "attack_class": "ATTACK-CLASSES.md#Feature abuse and data leakage"
+  },
+  "surface": "mcpcreds.py#serve_mcp+handle_rpc+call_tool",
+  "boundary": "mcpcreds.py#TOOLS list_credentials/get_credential",
+  "subsystem": "profile/quick/all-in-scope-subsystems",
+  "attack_class": "ATTACK-CLASSES.md#Feature abuse and data leakage",
+  "starting_paths": [
+   "mcpcreds.py"
+  ],
+  "ordinary_attack_class_block": "ATTACK-CLASSES.md#Feature abuse and data leakage",
+  "selected_companion_blocks": [
+   "AI-AND-LLM.md#Core discipline (include in every agent prompt for this domain)",
+   "AI-AND-LLM.md#MCP and sub-agent trust classes (subagent_type: `general`)",
+   "AI-AND-LLM.md#Tool and action attack classes (subagent_type: `general`)",
+   "AI-AND-LLM.md#Output and disclosure attack classes (subagent_type: `general`)",
+   "AI-AND-LLM.md#Universal moves (apply across the above)",
+   "AI-AND-LLM.md#Validation rules (apply before reporting ANY finding here)"
+  ],
+  "excluded_blocks": [
+   {
+    "block": "AI-AND-LLM.md#Context, retrieval, and memory attack classes (subagent_type: `general`)",
+    "reason": "no RAG or persistent model memory in this server"
+   }
+  ],
+  "prior_status": "new",
+  "attempts": [],
+  "wave": 1,
+  "status": "covered",
+  "agent_id": "h-mcp",
+  "reviewed_paths": [
+   "README.md",
+   "SECURITY.md",
+   "mcpcreds.py"
+  ],
+  "local_checks": [
+   {
+    "agent_id": "h-mcp",
+    "reviewed_paths": [
+     "mcpcreds.py",
+     "README.md",
+     "SECURITY.md"
+    ],
+    "invariant": "Through MCP get_credential, a connected AI app or its LLM can read stored secret values, and the server applies no per-key, per-app or per-call policy.",
+    "method": "source",
+    "result": "call_tool (mcpcreds.py:211-230) calls load() on every request and returns items[key]['value'] for any name it is given. No caller identity, allowlist or confirmation is checked. The stdio transport has no principal other than the parent app that spawned the process. This full-read behavior is documented and accepted: README.md:128 says any connected AI app can ask for keys, SECURITY.md:15 puts it out of scope, and architecture.md says 'by design full read through MCP (no per-key policy)'. The initialize 'instructions' text ('Never echo secret values...', mcpcreds.py:254-258) is only a prompt guardrail, not a boundary, and nothing relies on it as one. No authority beyond the documented design is reachable, so this is not a finding.",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-mcp",
+    "reviewed_paths": [
+     "mcpcreds.py"
+    ],
+    "invariant": "list_credentials and the get_credential error path do not disclose values, and they reveal nothing that the documented interface does not already expose.",
+    "method": "source",
+    "result": "list_credentials (mcpcreds.py:213-220) returns names, user notes and part counts, never values. The get_credential miss path (mcpcreds.py:228-229) lists all names. That is the same information list_credentials already gives the same caller, so there is no oracle across a boundary. Part counting only reads line structure, and its output contains no value text.",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-mcp",
+    "reviewed_paths": [
+     "mcpcreds.py"
+    ],
+    "invariant": "The JSON-RPC dispatcher maps requests to exactly the two declared tools, does not reflect sensitive data in error messages, and does not let malformed input change which resource is selected.",
+    "method": "source",
+    "result": "handle_rpc (mcpcreds.py:233-269) sends only 'list_credentials' and 'get_credential' to handlers. An unknown tool raises KeyError, which returns -32602. A non-dict params value becomes {}. A non-dict arguments value makes get_credential use an empty key (mcpcreds.py:222), which returns a miss, not a value. Notifications (id None) get no response. serve_mcp (mcpcreds.py:272-298) puts str(e) of unexpected exceptions into the -32603 message. Errors that can occur there (JSON decode errors from load, OSError) carry a position or path, not secret contents. One sub-case: a store item missing 'value' raises KeyError, which is mislabelled 'Unknown tool' but discloses nothing. protocolVersion is echoed back to the same client, which is harmless. There is one stdio peer and requests are answered in order, so no identity confusion between MCP servers is possible.",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-mcp",
+    "reviewed_paths": [
+     "mcpcreds.py"
+    ],
+    "invariant": "The case-insensitive fallback in get_credential cannot return a credential the caller could not otherwise get.",
+    "method": "source",
+    "result": "When there is no exact match, mcpcreds.py:226-227 builds a lower-case-name to name map and returns that entry. check_name (mcpcreds.py:119-123, NAME_RE line 39) allows names that differ only in case, so the fallback can return one of two colliding entries. Every entry is already readable by the same caller through an exact-name request, so no access boundary is crossed. This is recorded as hardening (wrong-key ambiguity), not a finding.",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-mcp",
+    "reviewed_paths": [
+     "mcpcreds.py"
+    ],
+    "invariant": "Tool metadata and schema are server-defined constants, not taken from attacker-influenced data.",
+    "method": "source",
+    "result": "TOOLS (mcpcreds.py:180-204) and the initialize response are static. No MCP peer metadata is used as policy. Note text from the store reaches the model context through list_credentials, and an imported note could carry prompt-injection text. That alone gives the model no authority it does not already have under the documented design, so it is not a finding under the AI-AND-LLM core discipline.",
+    "artifact": null
+   }
+  ],
+  "result_fingerprints": [],
+  "unresolved": []
+ },
+ {
+  "coverage_id": "ui.html%23render%2BopenImport%2BrenderApps%2Bhighlight::ui.html%23h%28%29%20text-node%20rendering::profile%2Fquick%2Fall-in-scope-subsystems::ATTACK-CLASSES.md%23Injection",
+  "canonical_refs": {
+   "surface": "ui.html#render+openImport+renderApps+highlight",
+   "boundary": "ui.html#h() text-node rendering",
+   "subsystem": "profile/quick/all-in-scope-subsystems",
+   "attack_class": "ATTACK-CLASSES.md#Injection"
+  },
+  "surface": "ui.html#render+openImport+renderApps+highlight",
+  "boundary": "ui.html#h() text-node rendering",
+  "subsystem": "profile/quick/all-in-scope-subsystems",
+  "attack_class": "ATTACK-CLASSES.md#Injection",
+  "starting_paths": [
+   "ui.html",
+   "mcpcreds.py"
+  ],
+  "ordinary_attack_class_block": "ATTACK-CLASSES.md#Injection",
+  "selected_companion_blocks": [
+   "CLIENT-SIDE.md#Core discipline (include in every agent prompt for this domain)",
+   "CLIENT-SIDE.md#DOM and object-state attack classes (subagent_type: `general`)",
+   "CLIENT-SIDE.md#Cross-origin messaging and network attack classes (subagent_type: `general`)",
+   "CLIENT-SIDE.md#UI-redress and navigation attack classes (subagent_type: `general`)",
+   "CLIENT-SIDE.md#Universal moves (apply across the above)",
+   "CLIENT-SIDE.md#Validation rules (apply before reporting ANY finding here)"
+  ],
+  "excluded_blocks": [
+   {
+    "block": "CLIENT-SIDE.md#Service-worker and browser-storage attack classes (subagent_type: `general`)",
+    "reason": "no service worker or browser storage"
+   }
+  ],
+  "prior_status": "new",
+  "attempts": [],
+  "wave": 1,
+  "status": "covered",
+  "agent_id": "h-web-api",
+  "reviewed_paths": [
+   "mcpcreds.py",
+   "ui.html"
+  ],
+  "local_checks": [
+   {
+    "agent_id": "h-web-api",
+    "reviewed_paths": [
+     "ui.html"
+    ],
+    "invariant": "Item names, notes and values (including ones from pasted, dropped or imported .env/JSON/MCP-config text) reach the DOM only as text nodes, never through innerHTML, attributes that execute, or URLs",
+    "method": "source",
+    "result": "Holds. h() passes children through Element.append, which makes text nodes (ui.html:464-470). The 'html' attribute key is used only with constant IC SVG strings, and with IC.copy plus a constant '<span>Copy</span>'. render puts n, it.note and it.value only into children or into title/aria-label via setAttribute (non-executing attributes). The style attribute gets only lk.c (constant SERVICES/fallback colours), i (an index), and vtName(n) (a base36 hash). The stats innerHTML (499) uses only counts. The no-match message is a template string passed as a text child. openImport renders p.name, mask(p.value) and p.note as text children.",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-web-api",
+    "reviewed_paths": [
+     "ui.html",
+     "mcpcreds.py"
+    ],
+    "invariant": "renderApps does not render server-reported app data (labels, errors, secret server names, warnings) as HTML",
+    "method": "source",
+    "result": "Holds. a.error, a.label, sub, r.warning, the missing-app labels and the secret server names all go in through h() children or textContent (ui.html:760-797). The APP_LOOK colour comes from a constant table keyed by a.id, with a constant fallback.",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-web-api",
+    "reviewed_paths": [
+     "ui.html",
+     "mcpcreds.py"
+    ],
+    "invariant": "highlight() output written to innerHTML cannot contain attacker-controlled markup",
+    "method": "source",
+    "result": "Holds. The input is TABS[t].code, built from CONFIG, which the server makes from cmd_prefix() (sys.executable/script path; mcpcreds.py:763-765) and embeds with '</' escaped (809). This is not attacker-controlled. highlight escapes & and < before adding span wrappers, which is enough for element-content context (ui.html:741-745).",
+    "artifact": null
+   },
+   {
+    "agent_id": "h-web-api",
+    "reviewed_paths": [
+     "ui.html"
+    ],
+    "invariant": "No prototype-pollution, postMessage, location-derived or navigation sink is reachable from pasted/imported content",
+    "method": "source",
+    "result": "Holds. parseBulk uses JSON.parse plus Object.entries and only pushes into an array; there is no recursive merge or path assignment. `items` is replaced wholesale from the server JSON. There is no message listener and no read of location, referrer or window.name. The only generated href is a blob: URL of the user's own export.",
+    "artifact": null
+   }
+  ],
+  "result_fingerprints": [],
+  "unresolved": []
+ }
+]

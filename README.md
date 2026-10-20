@@ -128,12 +128,14 @@ Keys are stored in `~/.mcpcreds/store.json` (override with `MCPCREDS_HOME`). The
 
 Be honest with yourself about the threat model: values are **plain JSON protected by file permissions**, the same as `~/.aws/credentials` or a `.env` file. Anything running as your user can read them, and any AI app you connect can ask for them through MCP. Only connect apps you trust.
 
-The app listens on `127.0.0.1` only, rejects requests whose `Host` is not localhost (blocks DNS rebinding), requires a random per-session token on every API call (blocks other websites) and cannot be framed. Config backups live in `~/.mcpcreds/backups`, never next to the config. Found a problem? See [SECURITY.md](SECURITY.md).
+The app listens on `127.0.0.1` only and rejects requests whose `Host` is not localhost (blocks DNS rebinding). Each launch opens with a one-time link that is exchanged for an `HttpOnly` session cookie, so other accounts on the same computer cannot open it, and every API call also needs a random per-session token (blocks other websites). It cannot be framed. Config backups live in `~/.mcpcreds/backups` (0600), never next to the config. They keep your original configs, including any tokens those held; deleting a key does not remove it from a backup. Exports hold every key in plain text, so keep them safe.
+
+Independently audited with Cloudflare's [security-audit skill](https://github.com/cloudflare/security-audit-skill): see the [October 2026 report and resolution](docs/security/2026-10-audit/RESOLUTION.md). Found a problem? See [SECURITY.md](SECURITY.md).
 
 ## Development
 
 ```bash
-python3 -m unittest -v          # 39 tests, stdlib only
+python3 -m unittest -v          # 50 tests, stdlib only
 ./packaging/build.sh            # build the desktop app for your OS into dist/ (needs uv)
 ```
 

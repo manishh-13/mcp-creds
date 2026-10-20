@@ -33,9 +33,10 @@ from contextlib import contextmanager
 import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import unquote
+from http.cookies import SimpleCookie
+from urllib.parse import parse_qs, unquote, urlsplit
 
-VERSION = "0.1.0"
+VERSION = "0.1.1"
 NAME_RE = re.compile(r"^[A-Za-z0-9_.\-]{1,128}$")
 FROZEN = bool(getattr(sys, "frozen", False))
 HERE = Path(getattr(sys, "_MEIPASS", Path(__file__).resolve().parent))
@@ -252,9 +253,12 @@ def call_tool(name: str, args: dict) -> dict:
         key = str((args if isinstance(args, dict) else {}).get("name", "") or "")
         if key in items:
             return _text(items[key]["value"])
-        lower = {k.lower(): k for k in items}
-        if key.lower() in lower:
-            return _text(items[lower[key.lower()]]["value"])
+        same = [k for k in items if k.lower() == key.lower()]
+        if len(same) == 1:
+            return _text(items[same[0]]["value"])
+        if len(same) > 1:
+            return _text(f"'{key}' matches several keys that differ only in case: {', '.join(sorted(same))}. "
+                         "Ask for the exact name.", error=True)
         avail = ", ".join(sorted(items)) or "none"
         return _text(f"No credential named '{key}'. Available: {avail}", error=True)
     raise KeyError(name)
@@ -321,7 +325,8 @@ def serve_mcp(stdin=None, stdout=None) -> None:
                 resp = handle_rpc(msg)
             except Exception as e:  # never let one bad request kill the server
                 mid = msg.get("id") if isinstance(msg, dict) else None
-                resp = {"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": f"Internal error: {e}"}}
+                resp = {"jsonrpc": "2.0", "id": mid, "error": {"code": -32603, "message": "Internal error"}}
+                print(f"MCP Creds: internal error: {e!r}", file=sys.stderr)
         if resp is not None:
             stdout.write(json.dumps(resp) + "\n")
             stdout.flush()
@@ -376,6 +381,9 @@ def run_with_keys(argv: list) -> int:
             break
         if a in ("-e", "--env") and i + 1 < len(argv):
             var, _, key = argv[i + 1].partition("=")
+            if not ENV_RE.match(var):
+                print(f"MCP Creds: '{var}' is not a valid environment variable name.", file=sys.stderr)
+                return 2
             pairs.append((var, key or var))
             i += 2
             continue
@@ -406,6 +414,9 @@ def run_with_keys(argv: list) -> int:
     for var, key in pairs:
         env[var] = value_part(items[key]["value"], var)
     env["PATH"] = augmented_path(env.get("PATH", ""))
+    if os.name == "nt":
+        os.environ["NoDefaultCurrentDirectoryInExePath"] = "1"  # which() must not pick a binary from the cwd
+        env["NoDefaultCurrentDirectoryInExePath"] = "1"
     exe = shutil.which(cmd[0], path=env["PATH"]) or cmd[0]
     if os.name == "posix":
         try:
@@ -426,6 +437,11 @@ def _run_windows(exe: str, cmd: list, env: dict) -> int:
     """Windows has no exec: start the child, and tie its life to ours with a kill-on-close job
     so it never lingers after the AI app stops us. .cmd/.bat shims (npx.cmd) need cmd.exe quoting."""
     if exe.lower().endswith((".cmd", ".bat")):
+        bad = [a for a in cmd[1:] if any(c in a for c in "%!\r\n")]
+        if bad:  # cmd.exe expands %VAR% and !VAR! even inside quotes; refuse rather than mis-run
+            print(f"MCP Creds: argument {bad[0]!r} contains % or ! which cmd.exe would expand. "
+                  "Point the config at the program itself (for example node.exe) instead of a .cmd shim.", file=sys.stderr)
+            return 2
         line = " ".join([_cmd_quote(exe)] + [_cmd_quote(a) for a in cmd[1:]])
         target = 'cmd.exe /d /s /c "' + line + '"'
     else:
@@ -545,8 +561,14 @@ def _backup(app_id: str, p: Path) -> None:
     targets = [d / f"{app_id}-previous.json"]
     if not (d / f"{app_id}-original.json").exists():
         targets.append(d / f"{app_id}-original.json")
+    data = p.read_bytes()
     for t in targets:
-        shutil.copyfile(p, t)
+        if t.is_symlink():
+            t.unlink()
+        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+        fd = os.open(t, flags, 0o600)
+        with os.fdopen(fd, "wb") as f:
+            f.write(data)
         os.chmod(t, 0o600)
 
 
@@ -613,8 +635,12 @@ def _points_to_us(cfg: dict) -> bool:
 
 
 def _is_wrapped(cfg: dict) -> bool:
-    args = cfg.get("args") or []
-    return isinstance(cfg, dict) and "run" in args and "--" in args and _points_to_us(cfg)
+    if not isinstance(cfg, dict):
+        return False
+    args = [str(a) for a in cfg.get("args") or []]
+    if "run" not in args or not _points_to_us(cfg):
+        return False
+    return "--" in args[args.index("run") + 1:]
 
 
 def _inline_secrets(servers: dict) -> list:
@@ -750,7 +776,7 @@ def _unwrap(cfg: dict, items: dict) -> dict:
             var, _, key = flags[k + 1].partition("=")
             key = key or var
             if key in items:
-                env[var] = items[key]["value"]
+                env[var] = value_part(items[key]["value"], var)
             k += 2
         else:
             k += 1
@@ -795,8 +821,20 @@ def mcp_config_snippet() -> dict:
     return {"mcpServers": {"mcp-creds": {"command": pre[0], "args": pre[1:] + ["mcp"]}}}
 
 
+LOCKED_PAGE = (b"<!doctype html><meta charset=utf-8><title>MCP Creds</title>"
+               b"<body style='font:15px -apple-system,sans-serif;max-width:520px;margin:15vh auto;padding:0 24px;color:#334'>"
+               b"<h2>This MCP Creds window has expired</h2><p>For your security, each launch opens with a one-time link. "
+               b"Open MCP Creds again from your Applications, or run <code>python3 mcpcreds.py ui</code>.</p>")
+
+
 def make_server(port: int = 7878, token: str = None):
+    """Local UI server. Auth has two parts so other accounts on this computer cannot get in:
+    a one-time launch code (in the URL MCP Creds opens) is exchanged for an HttpOnly session
+    cookie, and every API call also needs the per-session X-Token from the page."""
     token = token or secrets.token_urlsafe(24)
+    session = secrets.token_urlsafe(32)
+    launch = {"code": secrets.token_urlsafe(24), "used": False}
+    launch_lock = threading.Lock()
     page = (HERE / "ui.html").read_text("utf-8")
 
     class Handler(BaseHTTPRequestHandler):
@@ -820,9 +858,21 @@ def make_server(port: int = 7878, token: str = None):
             host = (self.headers.get("Host") or "").split(":")[0]
             return host in ("127.0.0.1", "localhost")
 
+        def _has_session(self):
+            c = SimpleCookie()
+            try:
+                c.load(self.headers.get("Cookie") or "")
+            except Exception:
+                return False
+            m = c.get("mcpc")
+            return bool(m) and secrets.compare_digest(m.value, session)
+
         def _authed(self):
             if not self._host_ok():
                 self._send(403, {"error": "bad host"})
+                return False
+            if not self._has_session():
+                self._send(401, {"error": "no session"})
                 return False
             if not secrets.compare_digest(self.headers.get("X-Token", ""), token):
                 self._send(401, {"error": "bad token"})
@@ -830,13 +880,38 @@ def make_server(port: int = 7878, token: str = None):
             return True
 
         def _body(self):
-            n = int(self.headers.get("Content-Length") or 0)
+            try:
+                n = int(self.headers.get("Content-Length") or 0)
+            except ValueError:
+                raise ValueError("bad Content-Length")
+            if n < 0 or n > 5 * 1024 * 1024:
+                raise ValueError("bad Content-Length")
             return json.loads(self.rfile.read(n) or b"{}") if n else {}
 
         def do_GET(self):
+            parts = urlsplit(self.path)
+            if parts.path in ("/", "/index.html") and parts.query:
+                if not self._host_ok():
+                    return self._send(403, {"error": "bad host"})
+                code = (parse_qs(parts.query).get("k") or [""])[0]
+                with launch_lock:
+                    ok = not launch["used"] and secrets.compare_digest(code, launch["code"])
+                    if ok:
+                        launch["used"] = True
+                if not ok:
+                    return self._send(403, LOCKED_PAGE, "text/html; charset=utf-8")
+                self.send_response(303)
+                self.send_header("Set-Cookie", f"mcpc={session}; HttpOnly; SameSite=Strict; Path=/")
+                self.send_header("Location", "/")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return
             if self.path in ("/", "/index.html"):
                 if not self._host_ok():
                     return self._send(403, {"error": "bad host"})
+                if not self._has_session():
+                    return self._send(403, LOCKED_PAGE, "text/html; charset=utf-8")
                 cfg = json.dumps(mcp_config_snippet()).replace("</", "<\\/")
                 html = (page.replace("__THEME__", current_theme()).replace("__TOKEN__", token)
                         .replace("__STORE__", htmlmod.escape(str(store_path())))
@@ -906,6 +981,7 @@ def make_server(port: int = 7878, token: str = None):
         srv = ThreadingHTTPServer(("127.0.0.1", port), Handler)
     except OSError:
         srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    srv.launch_code = launch["code"]
     return srv, token
 
 
@@ -940,13 +1016,19 @@ class DesktopApi:
         if not path:
             return ""
         path = path[0] if isinstance(path, (list, tuple)) else path
-        Path(path).write_text(data, encoding="utf-8")
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(data)
+        try:
+            os.chmod(path, 0o600)
+        except OSError:
+            pass
         return str(path)
 
 
 def run_ui(port: int = 7878, open_browser: bool = True, native: bool = True) -> None:
     srv, _ = make_server(port)
-    url = f"http://127.0.0.1:{srv.server_address[1]}/"
+    url = f"http://127.0.0.1:{srv.server_address[1]}/?k={srv.launch_code}"
     if native:
         try:
             import webview  # optional: pip install pywebview, bundled in the desktop app
@@ -961,7 +1043,7 @@ def run_ui(port: int = 7878, open_browser: bool = True, native: bool = True) -> 
         webview.start()
         srv.shutdown()
         return
-    print(f"MCP Creds running at {url}  (Ctrl+C to stop)")
+    print(f"MCP Creds running at {url}  (one-time link, Ctrl+C to stop)")
     print(f"Store: {store_path()}")
     if open_browser:
         threading.Timer(0.3, lambda: webbrowser.open(url)).start()
@@ -975,7 +1057,8 @@ def run_ui(port: int = 7878, open_browser: bool = True, native: bool = True) -> 
 
 def main(argv=None) -> int:
     argv = list(sys.argv[1:] if argv is None else argv)
-    argv = [a for a in argv if not a.startswith("-psn_")]  # macOS Finder launch arg
+    if argv and argv[0].startswith("-psn_"):  # macOS Finder launch arg (only ever first)
+        argv = argv[1:]
     cmd = argv.pop(0) if argv else "ui"
     try:
         if cmd == "ui":
