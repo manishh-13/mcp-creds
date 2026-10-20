@@ -116,6 +116,36 @@ def locked():
             pass
 
 
+def load_settings() -> dict:
+    p = home() / "settings.json"
+    try:
+        data = json.loads(p.read_text("utf-8"))
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_settings(changes: dict) -> dict:
+    allowed = {"theme": ("light", "dark")}
+    data = load_settings()
+    for k, v in changes.items():
+        if k not in allowed or v not in allowed[k]:
+            raise ValueError(f"Unsupported setting {k}={v}")
+        data[k] = v
+    h = home()
+    h.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=h, prefix=".settings-", suffix=".json")
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, h / "settings.json")
+    return data
+
+
+def current_theme() -> str:
+    return "dark" if load_settings().get("theme") == "dark" else "light"
+
+
 def check_name(name: str) -> str:
     name = (name or "").strip()
     if not NAME_RE.match(name):
@@ -808,7 +838,7 @@ def make_server(port: int = 7878, token: str = None):
                 if not self._host_ok():
                     return self._send(403, {"error": "bad host"})
                 cfg = json.dumps(mcp_config_snippet()).replace("</", "<\\/")
-                html = (page.replace("__TOKEN__", token)
+                html = (page.replace("__THEME__", current_theme()).replace("__TOKEN__", token)
                         .replace("__STORE__", htmlmod.escape(str(store_path())))
                         .replace("__VERSION__", VERSION)
                         .replace("__CONFIG__", cfg))
@@ -827,12 +857,16 @@ def make_server(port: int = 7878, token: str = None):
             self._send(404, {"error": "not found"})
 
         def do_POST(self):
-            if self.path not in ("/api/items", "/api/import", "/api/apps/connect", "/api/apps/undo"):
+            if self.path not in ("/api/items", "/api/import", "/api/apps/connect", "/api/apps/undo", "/api/settings"):
                 return self._send(404, {"error": "not found"})
             if not self._authed():
                 return
             try:
                 b = self._body()
+                if self.path == "/api/settings":
+                    if not isinstance(b, dict):
+                        raise ValueError("settings must be an object")
+                    return self._send(200, {"ok": True, "settings": save_settings(b)})
                 if self.path == "/api/apps/connect":
                     results = []
                     for app_id in b.get("ids") or []:
@@ -922,7 +956,8 @@ def run_ui(port: int = 7878, open_browser: bool = True, native: bool = True) -> 
         threading.Thread(target=srv.serve_forever, daemon=True).start()
         api = DesktopApi()
         api.window = webview.create_window("MCP Creds", url, js_api=api, width=1120, height=820,
-                                           min_size=(420, 560), background_color="#07080c")
+                                           min_size=(420, 560),
+                                           background_color="#07080c" if current_theme() == "dark" else "#f5f6fa")
         webview.start()
         srv.shutdown()
         return

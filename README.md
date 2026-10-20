@@ -66,6 +66,7 @@ It opens in your browser, or in its own window if you `pip install pywebview`.
 - **Credentials with several parts** (an AWS access key, secret and session token): paste them all into one key, one per line. The AI reads every part, and `run` hands each server just the part it needs. Or split them into separate keys with one click.
 - **Copy, reveal, edit, delete,** search by name, note or service, export everything as JSON.
 - **Keyboard first:** `N` new key, `Cmd/Ctrl+K` search, `Esc` close.
+- **Light and dark mode.** Light by default; the sun/moon button switches, and it remembers your choice.
 
 <br clear="right">
 

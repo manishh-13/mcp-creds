@@ -141,6 +141,15 @@ class HttpTests(Base):
             with e:
                 return e.code, e.read()
 
+    def test_theme_defaults_to_light_and_persists(self):
+        _, body = self.req("GET", "/", token=None)
+        self.assertIn(b'data-theme="light"', body)
+        self.assertEqual(self.req("POST", "/api/settings", {"theme": "dark"})[0], 200)
+        _, body = self.req("GET", "/", token=None)
+        self.assertIn(b'data-theme="dark"', body)
+        self.assertEqual(self.req("POST", "/api/settings", {"theme": "<script>"})[0], 400)
+        self.assertEqual(self.req("POST", "/api/settings", {"theme": "light"}, token="bad")[0], 401)
+
     def test_anti_framing_headers(self):
         with urllib.request.urlopen(self.base + "/") as r:
             self.assertEqual(r.headers["X-Frame-Options"], "DENY")
